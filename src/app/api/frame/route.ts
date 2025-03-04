@@ -16,10 +16,8 @@ function generateFrameHtml({
     <meta property="fc:frame:button:1" content="Previous" />
     <meta property="fc:frame:button:2" content="Next" />
     <meta property="fc:frame:button:3" content="Collect" />
-    <meta property="fc:frame:button:4" content="Ask Agent" />
-    <meta property="og:title" content="Prism: Digital Dreams #1" />
-    <meta property="og:description" content="A mesmerizing piece of digital art by AI Artist" />
-    <meta property="og:image" content="${imageUrl}" />
+    <meta property="og:title" content="Prism: Digital Dreams" />
+    <meta property="og:description" content="Discover and collect digital art" />
   </head>
 </html>`
 }
