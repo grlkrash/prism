@@ -13,40 +13,44 @@ function generateFrameHtml({
     { label: 'Ask Agent', action: 'ask' }
   ]
 }) {
-  return `<!DOCTYPE html>
+  return `
+<!DOCTYPE html>
 <html>
 <head>
-  <title>Prism: ${title}</title>
   <meta property="fc:frame" content="vNext" />
   <meta property="fc:frame:image" content="${imageUrl}" />
   <meta property="fc:frame:post_url" content="${postUrl}" />
-  ${buttons.map((button, index) => `
-  <meta property="fc:frame:button:${index + 1}" content="${button.label}" />
-  <meta property="fc:frame:button:${index + 1}:action" content="${button.action}" />
-  `).join('')}
-  <meta property="og:title" content="Prism: ${title}" />
-  <meta property="og:description" content="${description}" />
-  <meta property="og:image" content="${imageUrl}" />
+  <meta property="fc:frame:button:1" content="Previous" />
+  <meta property="fc:frame:button:2" content="Next" />
+  <meta property="fc:frame:button:3" content="Collect" />
+  <meta property="fc:frame:button:4" content="Ask Agent" />
+  <title>${title}</title>
 </head>
 <body>
   <h1>${title}</h1>
   <p>${description}</p>
 </body>
-</html>`
+</html>`.trim()
 }
 
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
+    console.log('Host URL:', hostUrl)
     
     const token = tokenDatabase[0]
+    // Use a more reliable image URL
+    const imageUrl = 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg'
+    
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: token.imageUrl,
+      imageUrl,
       title: token.name,
       description: `${token.description} by ${token.artistName}`
     })
+    
+    console.log('Generated HTML:', html)
     
     return new NextResponse(html, {
       headers: {
@@ -59,7 +63,13 @@ export async function GET(req: NextRequest) {
     })
   } catch (error) {
     console.error('Error in GET:', error)
-    return new NextResponse('Error', { status: 500 })
+    return new NextResponse('Error generating frame', { 
+      status: 500,
+      headers: {
+        'Content-Type': 'text/plain',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
   }
 }
 
