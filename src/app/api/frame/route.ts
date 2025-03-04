@@ -16,6 +16,12 @@ function generateFrameHtml({
   return `<!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <meta property="og:title" content="${title}" />
+  <meta property="og:description" content="${description}" />
+  <meta property="og:image" content="${imageUrl}" />
   <meta property="fc:frame" content="vNext" />
   <meta property="fc:frame:image" content="${imageUrl}" />
   <meta property="fc:frame:post_url" content="${postUrl}" />
@@ -23,16 +29,10 @@ function generateFrameHtml({
   <meta property="fc:frame:button:2" content="Next" />
   <meta property="fc:frame:button:3" content="Collect" />
   <meta property="fc:frame:button:4" content="Ask Agent" />
-  <title>${title}</title>
-  <script src="https://warpcast.com/~/frame.js"></script>
 </head>
 <body>
-  <script>
-    // Initialize frame
-    window.addEventListener('load', function() {
-      window.frame.ready();
-    });
-  </script>
+  <h1>${title}</h1>
+  <p>${description}</p>
 </body>
 </html>`.trim()
 }
@@ -44,8 +44,8 @@ export async function GET(req: NextRequest) {
     console.log('Host URL:', hostUrl)
     
     const token = tokenDatabase[0]
-    // Use a more reliable image URL
-    const imageUrl = 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg'
+    // Use a reliable placeholder image
+    const imageUrl = 'https://placehold.co/800x600/png'
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
       case 3: // Collect
         const html = generateFrameHtml({
           postUrl: `${hostUrl}/api/frame`,
-          imageUrl: 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg',
+          imageUrl: 'https://placehold.co/800x600/png',
           title: 'Token Collected!',
           description: 'The token has been added to your collection.'
         })
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       case 4: // Ask Agent
         const agentHtml = generateFrameHtml({
           postUrl: `${hostUrl}/api/frame`,
-          imageUrl: 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg',
+          imageUrl: 'https://placehold.co/800x600/png',
           title: 'Opening Agent Chat',
           description: 'Connecting to the agent...'
         })
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
     const token = tokenDatabase[currentTokenIndex]
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg',
+      imageUrl: 'https://placehold.co/800x600/png',
       title: token.name,
       description: `${token.description} by ${token.artistName}`
     })
@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
     console.error('Error in POST:', error)
     const errorHtml = generateFrameHtml({
       postUrl: `${new URL(req.url).origin}/api/frame`,
-      imageUrl: 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg',
+      imageUrl: 'https://placehold.co/800x600/png',
       title: 'Error',
       description: 'Something went wrong. Please try again.'
     })
