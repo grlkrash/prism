@@ -1,0 +1,15 @@
+{
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  },
+  "frame": {
+    "version": "0.0.0",
+    "name": "Prism",
+    "homeUrl": "https://638b-2601-282-2380-4b00-25a9-40b5-9994-6e8d.ngrok-free.app/api/frame",
+    "iconUrl": "https://placehold.co/200x200/5F4B8B/FFFFFF/png?text=Prism",
+    "splashImageUrl": "https://placehold.co/200x200/5F4B8B/FFFFFF/png?text=Prism",
+    "splashBackgroundColor": "#5F4B8B"
+  }
+} 
