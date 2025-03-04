@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFrameMessage } from '@farcaster/frame-sdk'
+import getFrameMessage from '@farcaster/frame-sdk'
 
 // Sample token data for the demo
 const sampleTokens = [
