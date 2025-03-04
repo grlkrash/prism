@@ -1,7 +1,7 @@
 {
   "headers": [
     {
-      "source": "/api/frame",
+      "source": "/api/(.*)",
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
@@ -9,30 +9,16 @@
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST"
+          "value": "GET, POST, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",
           "value": "Content-Type"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
         }
       ]
     }
   ],
-  "rewrites": [
-    {
-      "source": "/api/frame",
-      "destination": "/api/frame"
-    }
-  ],
-  "functions": {
-    "api/frame": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
-  },
-  "public": true
+  "buildCommand": "next build",
+  "devCommand": "next dev",
+  "framework": "nextjs"
 } 
