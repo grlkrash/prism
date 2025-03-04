@@ -18,8 +18,18 @@ function generateFrameHtml({
     <meta property="fc:frame:button:1" content="Previous" />
     <meta property="fc:frame:button:2" content="Next" />
     <meta property="fc:frame:button:3" content="Collect" />
-    <title>Prism: Digital Dreams</title>
+    <meta property="fc:frame:button:1:action" content="post" />
+    <meta property="fc:frame:button:2:action" content="post" />
+    <meta property="fc:frame:button:3:action" content="post" />
+    <meta property="fc:frame:aspect_ratio" content="1.91:1" />
+    <meta property="og:title" content="Prism: Digital Dreams" />
+    <meta property="og:description" content="Discover and collect digital art" />
+    <meta property="og:image" content="${imageUrl}" />
   </head>
+  <body>
+    <h1>Prism: Digital Dreams</h1>
+    <p>A gallery of digital dreams and artistic expressions.</p>
+  </body>
 </html>`
 }
 
@@ -30,12 +40,13 @@ export async function GET(req: NextRequest) {
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: 'https://placehold.co/800x600/png'
+      imageUrl: 'https://placehold.co/800x418/png'
     })
     
     return new NextResponse(html, {
       headers: {
-        'Content-Type': 'text/html; charset=utf-8'
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store'
       }
     })
   } catch (error) {
@@ -51,12 +62,13 @@ export async function POST(req: NextRequest) {
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: 'https://placehold.co/800x600/png'
+      imageUrl: 'https://placehold.co/800x418/png'
     })
     
     return new NextResponse(html, {
       headers: {
-        'Content-Type': 'text/html; charset=utf-8'
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store'
       }
     })
   } catch (error) {
