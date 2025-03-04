@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Message, validateMessage } from '@farcaster/frame-core'
+import { getFrameMessage } from '@farcaster/frame-sdk'
 
 // Sample token data for the demo
 const sampleTokens = [
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { isValid, message } = await validateMessage(body)
+    const { isValid, message } = await getFrameMessage(body)
     
     if (!isValid || !message) {
       return new NextResponse(
