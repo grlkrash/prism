@@ -13,8 +13,7 @@ function generateFrameHtml({
     { label: 'Ask Agent', action: 'ask' }
   ]
 }) {
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html>
 <head>
   <meta property="fc:frame" content="vNext" />
@@ -25,10 +24,15 @@ function generateFrameHtml({
   <meta property="fc:frame:button:3" content="Collect" />
   <meta property="fc:frame:button:4" content="Ask Agent" />
   <title>${title}</title>
+  <script src="https://warpcast.com/~/frame.js"></script>
 </head>
 <body>
-  <h1>${title}</h1>
-  <p>${description}</p>
+  <script>
+    // Initialize frame
+    window.addEventListener('load', function() {
+      window.frame.ready();
+    });
+  </script>
 </body>
 </html>`.trim()
 }
@@ -91,34 +95,37 @@ export async function POST(req: NextRequest) {
         currentTokenIndex = Math.min(tokenDatabase.length - 1, currentTokenIndex + 1)
         break
       case 3: // Collect
-        return new NextResponse(
-          JSON.stringify({ 
-            success: true, 
-            message: 'Token collected successfully!' 
-          }), 
-          { 
-            status: 200, 
-            headers: { 'Content-Type': 'application/json' } 
+        const html = generateFrameHtml({
+          postUrl: `${hostUrl}/api/frame`,
+          imageUrl: 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg',
+          title: 'Token Collected!',
+          description: 'The token has been added to your collection.'
+        })
+        return new NextResponse(html, {
+          headers: {
+            'Content-Type': 'text/html',
+            'Access-Control-Allow-Origin': '*'
           }
-        )
+        })
       case 4: // Ask Agent
-        return new NextResponse(
-          JSON.stringify({ 
-            success: true, 
-            message: 'Opening agent chat...',
-            location: `${hostUrl}/agent?token=${currentTokenIndex}`
-          }), 
-          { 
-            status: 200, 
-            headers: { 'Content-Type': 'application/json' } 
+        const agentHtml = generateFrameHtml({
+          postUrl: `${hostUrl}/api/frame`,
+          imageUrl: 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg',
+          title: 'Opening Agent Chat',
+          description: 'Connecting to the agent...'
+        })
+        return new NextResponse(agentHtml, {
+          headers: {
+            'Content-Type': 'text/html',
+            'Access-Control-Allow-Origin': '*'
           }
-        )
+        })
     }
 
     const token = tokenDatabase[currentTokenIndex]
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: token.imageUrl,
+      imageUrl: 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg',
       title: token.name,
       description: `${token.description} by ${token.artistName}`
     })
@@ -134,9 +141,17 @@ export async function POST(req: NextRequest) {
     })
   } catch (error) {
     console.error('Error in POST:', error)
-    return new NextResponse(
-      JSON.stringify({ error: 'Internal server error' }), 
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    const errorHtml = generateFrameHtml({
+      postUrl: `${new URL(req.url).origin}/api/frame`,
+      imageUrl: 'https://raw.githubusercontent.com/grlkrsh/prism/main/public/token1.jpg',
+      title: 'Error',
+      description: 'Something went wrong. Please try again.'
+    })
+    return new NextResponse(errorHtml, {
+      headers: {
+        'Content-Type': 'text/html',
+        'Access-Control-Allow-Origin': '*'
+      }
+    })
   }
 } 
