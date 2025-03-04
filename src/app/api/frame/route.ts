@@ -1,23 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { tokenDatabase } from '../../../utils/mbdAi'
 
 function generateFrameHtml({
   imageUrl,
-  postUrl,
-  title,
-  description
+  postUrl
+}: {
+  imageUrl: string
+  postUrl: string
 }) {
-  return `<!DOCTYPE html>
+  return `
+<!DOCTYPE html>
 <html>
-<head>
-  <meta property="fc:frame" content="vNext" />
-  <meta property="fc:frame:image" content="${imageUrl}" />
-  <meta property="fc:frame:post_url" content="${postUrl}" />
-  <meta property="fc:frame:button:1" content="Previous" />
-  <meta property="fc:frame:button:2" content="Next" />
-  <meta property="fc:frame:button:3" content="Collect" />
-  <meta property="fc:frame:button:4" content="Ask Agent" />
-</head>
+  <head>
+    <meta property="fc:frame" content="vNext" />
+    <meta property="fc:frame:image" content="${imageUrl}" />
+    <meta property="fc:frame:post_url" content="${postUrl}" />
+    <meta property="fc:frame:button:1" content="Previous" />
+    <meta property="fc:frame:button:2" content="Next" />
+    <meta property="fc:frame:button:3" content="Collect" />
+    <meta property="fc:frame:button:4" content="Ask Agent" />
+  </head>
 </html>`
 }
 
@@ -28,15 +29,11 @@ export async function GET(req: NextRequest) {
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: 'https://placehold.co/800x600/png',
-      title: 'Prism Frame',
-      description: 'A simple frame'
+      imageUrl: 'https://placehold.co/800x600/png'
     })
     
     return new NextResponse(html, {
-      headers: {
-        'Content-Type': 'text/html'
-      }
+      headers: { 'Content-Type': 'text/html' }
     })
   } catch (error) {
     console.error('Error in GET:', error)
@@ -51,15 +48,11 @@ export async function POST(req: NextRequest) {
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: 'https://placehold.co/800x600/png',
-      title: 'Prism Frame',
-      description: 'A simple frame'
+      imageUrl: 'https://placehold.co/800x600/png'
     })
     
     return new NextResponse(html, {
-      headers: {
-        'Content-Type': 'text/html'
-      }
+      headers: { 'Content-Type': 'text/html' }
     })
   } catch (error) {
     console.error('Error in POST:', error)
