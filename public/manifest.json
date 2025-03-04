@@ -1,0 +1,27 @@
+{
+  "name": "Prism - Cultural Tokens",
+  "description": "Discover and collect cultural tokens on Base",
+  "version": "1.0.0",
+  "frame": {
+    "version": "vNext",
+    "image": "https://placehold.co/1200x628/5F4B8B/FFFFFF/png?text=Prism",
+    "buttons": [
+      {
+        "label": "Previous",
+        "action": "post"
+      },
+      {
+        "label": "Next",
+        "action": "post"
+      },
+      {
+        "label": "Collect",
+        "action": "post"
+      },
+      {
+        "label": "Ask Agent",
+        "action": "post"
+      }
+    ]
+  }
+} 

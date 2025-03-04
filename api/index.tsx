@@ -69,7 +69,7 @@ app.frame('/', (c) => {
 
 // @ts-ignore
 const isEdgeFunction = typeof EdgeFunction !== 'undefined'
-const isProduction = isEdgeFunction || import.meta.env?.MODE !== 'development'
+const isProduction = isEdgeFunction || process.env.NODE_ENV === 'production'
 devtools(app, isProduction ? { assetsPath: '/.frog' } : { serveStatic })
 
 export const GET = handle(app)

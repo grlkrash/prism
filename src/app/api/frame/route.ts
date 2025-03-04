@@ -1,23 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import getFrameMessage from '@farcaster/frame-sdk'
-
-// Sample token data for the demo
-const sampleTokens = [
-  {
-    id: '1',
-    name: 'Digital Renaissance',
-    artist: 'Metagallery',
-    image: 'https://placehold.co/1200x628/5F4B8B/FFFFFF/png?text=Digital%20Renaissance', // 1.91:1 aspect ratio
-    description: 'A community token celebrating digital art pioneers',
-    curatorPoints: 125,
-  }
-]
+import { tokenDatabase, validateFrameRequest, frameActions } from '../../../utils/mbdAi'
 
 function generateFrameHtml({
-  imageUrl = 'https://placehold.co/1200x628/5F4B8B/FFFFFF/png?text=Digital%20Renaissance',
+  imageUrl,
   postUrl,
-  title = 'Digital Renaissance',
-  description = 'A community token celebrating digital art pioneers by Metagallery'
+  title,
+  description,
+  buttons = [
+    { label: 'Previous', action: 'previous' },
+    { label: 'Next', action: 'next' },
+    { label: 'Collect', action: 'collect' },
+    { label: 'Ask Agent', action: 'ask' }
+  ]
 }) {
   return `<!DOCTYPE html>
 <html>
@@ -25,16 +19,27 @@ function generateFrameHtml({
   <meta charset="utf-8" />
   <meta property="fc:frame" content="vNext" />
   <meta property="fc:frame:image" content="${imageUrl}" />
-  <meta property="fc:frame:button:1" content="Previous" />
-  <meta property="fc:frame:button:2" content="Next" />
-  <meta property="fc:frame:button:3" content="Collect" />
-  <meta property="fc:frame:button:4" content="Ask Agent" />
   <meta property="fc:frame:post_url" content="${postUrl}" />
+  <meta property="fc:frame:state" content="{}" />
+  ${buttons.map((button, index) => `
+  <meta property="fc:frame:button:${index + 1}" content="${button.label}" />
+  <meta property="fc:frame:button:${index + 1}:action" content="${button.action}" />
+  `).join('')}
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta property="og:title" content="Prism: ${title}" />
   <meta property="og:description" content="${description}" />
   <meta property="og:image" content="${imageUrl}" />
   <title>Prism: ${title}</title>
+  <script>
+    // Initialize frame
+    window.addEventListener('load', async () => {
+      try {
+        await window.sdk.actions.ready()
+      } catch (error) {
+        console.error('Failed to initialize frame:', error)
+      }
+    })
+  </script>
 </head>
 <body>
   <h1>Prism: ${title}</h1>
@@ -48,11 +53,12 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
     
+    const token = tokenDatabase[0]
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: sampleTokens[0].image,
-      title: sampleTokens[0].name,
-      description: `${sampleTokens[0].description} by ${sampleTokens[0].artist}`
+      imageUrl: token.imageUrl,
+      title: token.name,
+      description: `${token.description} by ${token.artistName}`
     })
     
     return new NextResponse(html, {
@@ -72,48 +78,49 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { isValid, message } = await getFrameMessage(body)
-    
-    if (!isValid || !message) {
-      return new NextResponse(
-        JSON.stringify({ error: 'Invalid frame message' }), 
-        { 
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      )
+    const { isValid, message } = await validateFrameRequest(req)
+    if (!isValid) {
+      return new NextResponse('Invalid frame request', { status: 400 })
     }
 
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
     
     // Handle button clicks
-    const buttonIndex = message.button
     let currentTokenIndex = 0 // In real app, store in KV or similar
+    const buttonIndex = message?.button || 0
 
     switch (buttonIndex) {
       case 1: // Previous
         currentTokenIndex = Math.max(0, currentTokenIndex - 1)
         break
       case 2: // Next
-        currentTokenIndex = Math.min(sampleTokens.length - 1, currentTokenIndex + 1)
+        currentTokenIndex = Math.min(tokenDatabase.length - 1, currentTokenIndex + 1)
         break
       case 3: // Collect
-        // TODO: Implement collection logic
-        break
+        await frameActions.close()
+        return new NextResponse(
+          JSON.stringify({ 
+            success: true, 
+            message: 'Token collected successfully!' 
+          }), 
+          { 
+            status: 200, 
+            headers: { 'Content-Type': 'application/json' } 
+          }
+        )
       case 4: // Ask Agent
-        // TODO: Implement agent interaction
+        await frameActions.openUrl(`${hostUrl}/agent?token=${currentTokenIndex}`)
         break
     }
 
-    const token = sampleTokens[currentTokenIndex]
+    const token = tokenDatabase[currentTokenIndex]
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: token.image,
+      imageUrl: token.imageUrl,
       title: token.name,
-      description: `${token.description} by ${token.artist}`
+      description: `${token.description} by ${token.artistName}`
     })
     
     return new NextResponse(html, {

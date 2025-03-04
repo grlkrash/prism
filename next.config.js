@@ -1,22 +1,33 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  images: {
+    domains: ['placehold.co'],
+  },
   async headers() {
     return [
       {
-        source: '/.well-known/:path*',
+        source: '/api/frame',
         headers: [
           {
             key: 'Access-Control-Allow-Origin',
-            value: '*'
+            value: '*',
           },
           {
-            key: 'Content-Type',
-            value: 'application/json'
-          }
-        ]
-      }
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, POST',
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'Content-Type',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'no-store',
+          },
+        ],
+      },
     ]
-  }
+  },
 }
 
 module.exports = nextConfig 
