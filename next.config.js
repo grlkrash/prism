@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: ['placehold.co'],
+    domains: ['placehold.co', 'picsum.photos'],
   },
   async headers() {
     return [
@@ -23,6 +23,20 @@ const nextConfig = {
           {
             key: 'Cache-Control',
             value: 'no-store',
+          },
+        ],
+      },
+    ]
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/frame',
+        destination: '/api/frame',
+        has: [
+          {
+            type: 'header',
+            key: 'x-vercel-protection-bypass',
           },
         ],
       },
