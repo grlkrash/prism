@@ -13,7 +13,10 @@ function generateFrameHtml({
     <meta property="fc:frame" content="vNext" />
     <meta property="fc:frame:image" content="${imageUrl}" />
     <meta property="fc:frame:post_url" content="${postUrl}" />
+    <meta property="fc:frame:button:1" content="View Art" />
+    <meta property="fc:frame:button:2" content="Next" />
     <meta property="og:title" content="Prism: Digital Dreams #1" />
+    <meta property="og:image" content="${imageUrl}" />
     <meta property="og:description" content="A mesmerizing piece of digital art by AI Artist" />
   </head>
 </html>`
@@ -26,12 +29,13 @@ export async function GET(req: NextRequest) {
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: 'https://placehold.co/600x315/png'
+      imageUrl: 'https://placehold.co/1200x630/png'
     })
     
     return new NextResponse(html, {
       headers: {
-        'Content-Type': 'text/html'
+        'Content-Type': 'text/html',
+        'Cache-Control': 'no-store'
       }
     })
   } catch (error) {
@@ -51,12 +55,13 @@ export async function POST(req: NextRequest) {
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: 'https://placehold.co/600x315/png'
+      imageUrl: 'https://placehold.co/1200x630/png' // Match GET handler dimensions
     })
     
     return new NextResponse(html, {
       headers: {
-        'Content-Type': 'text/html'
+        'Content-Type': 'text/html',
+        'Cache-Control': 'no-store'
       }
     })
   } catch (error) {
