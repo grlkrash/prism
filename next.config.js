@@ -33,12 +33,6 @@ const nextConfig = {
       {
         source: '/api/frame',
         destination: '/api/frame',
-        has: [
-          {
-            type: 'header',
-            key: 'x-vercel-protection-bypass',
-          },
-        ],
       },
     ]
   },
