@@ -1,15 +1,15 @@
-import { TokenGallery } from '../components/TokenGallery'
+'use client'
+
+import dynamic from 'next/dynamic'
+
+const Demo = dynamic(() => import('./components/Demo'), {
+  ssr: false,
+})
 
 export default function Home() {
   return (
-    <div className="min-h-screen p-8">
-      <main className="flex flex-col gap-8 items-center">
-        <h1 className="text-4xl font-bold">Prism</h1>
-        <p className="text-xl text-gray-600 dark:text-gray-400">
-          Discover and collect digital art
-        </p>
-        <TokenGallery />
-      </main>
-    </div>
+    <main className="min-h-screen flex flex-col p-4">
+      <Demo />
+    </main>
   )
 }

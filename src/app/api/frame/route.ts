@@ -10,7 +10,6 @@ function generateFrameHtml({
   return `<!DOCTYPE html>
 <html>
   <head>
-    <title>Prism: Digital Dreams #1</title>
     <meta property="fc:frame" content="vNext" />
     <meta property="fc:frame:image" content="${imageUrl}" />
     <meta property="fc:frame:post_url" content="${postUrl}" />
@@ -19,7 +18,12 @@ function generateFrameHtml({
     <meta property="fc:frame:button:3" content="Collect" />
     <meta property="og:title" content="Prism: Digital Dreams #1" />
     <meta property="og:description" content="A mesmerizing piece of digital art by AI Artist" />
+    <title>Prism: Digital Dreams #1</title>
   </head>
+  <body>
+    <h1>Prism: Digital Dreams #1</h1>
+    <p>A mesmerizing piece of digital art by AI Artist</p>
+  </body>
 </html>`
 }
 
@@ -35,7 +39,8 @@ export async function GET(req: NextRequest) {
     
     return new NextResponse(html, {
       headers: {
-        'Content-Type': 'text/html'
+        'Content-Type': 'text/html',
+        'Access-Control-Allow-Origin': '*'
       }
     })
   } catch (error) {
@@ -56,7 +61,8 @@ export async function POST(req: NextRequest) {
     
     return new NextResponse(html, {
       headers: {
-        'Content-Type': 'text/html'
+        'Content-Type': 'text/html',
+        'Access-Control-Allow-Origin': '*'
       }
     })
   } catch (error) {
