@@ -30,30 +30,26 @@ class AgentkitError extends Error {
 }
 
 // Rate limiting configuration
-const RATE_LIMIT_WINDOW = 60000 // 1 minute
-const MAX_REQUESTS_PER_WINDOW = 10
+const RATE_LIMIT = {
+  maxRequests: 100,
+  windowMs: 60 * 1000, // 1 minute
+  requests: new Map<string, number[]>()
+}
 
-const userRequestCounts = new Map<string, { count: number; timestamp: number }>()
-
-function checkRateLimit(userId: string) {
+function checkRateLimit(userId: string): boolean {
   const now = Date.now()
-  const userRequests = userRequestCounts.get(userId)
-
-  if (!userRequests) {
-    userRequestCounts.set(userId, { count: 1, timestamp: now })
-    return
+  const userRequests = RATE_LIMIT.requests.get(userId) || []
+  
+  // Remove old requests
+  const recentRequests = userRequests.filter(time => now - time < RATE_LIMIT.windowMs)
+  
+  if (recentRequests.length >= RATE_LIMIT.maxRequests) {
+    return false
   }
-
-  if (now - userRequests.timestamp > RATE_LIMIT_WINDOW) {
-    userRequestCounts.set(userId, { count: 1, timestamp: now })
-    return
-  }
-
-  if (userRequests.count >= MAX_REQUESTS_PER_WINDOW) {
-    throw new RateLimitError('Rate limit exceeded')
-  }
-
-  userRequests.count++
+  
+  recentRequests.push(now)
+  RATE_LIMIT.requests.set(userId, recentRequests)
+  return true
 }
 
 // Initialize LangChain tools
@@ -72,46 +68,45 @@ const agent = createReactAgent({
   systemPrompt: AGENTKIT_CONFIG.SYSTEM_PROMPT,
 })
 
-export async function sendMessage(request: unknown) {
+export async function sendMessage(request: unknown): Promise<AgentResponse> {
   try {
-    const validatedRequest = agentRequestSchema.parse(request)
-    const { message, userId = 'anonymous', context } = validatedRequest
+    // Validate request
+    const { message, userId } = z.object({
+      message: z.string(),
+      userId: z.string()
+    }).parse(request)
 
     // Check rate limit
-    checkRateLimit(userId)
+    if (!checkRateLimit(userId)) {
+      throw new RateLimitError('Rate limit exceeded')
+    }
 
     // Get agent instance
     const agent = await getAgent()
-    if (!agent) throw new Error('Failed to initialize agent')
-
-    // Prepare context
-    const contextStr = context ? JSON.stringify(context) : ''
-    const input = contextStr ? `${message}\nContext: ${contextStr}` : message
-
+    
     // Call agent
     const result = await agent.invoke({
-      input,
+      input: message
     })
 
-    // Parse response
-    const response = agentResponseSchema.parse({
+    // Format response
+    return {
       id: crypto.randomUUID(),
-      content: result.output,
+      content: result.response,
       role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
-        tokenRecommendations: extractTokenRecommendations(result.output),
-        actions: extractActions(result.output)
+        actions: result.actions?.map(action => ({
+          type: 'analyze',
+          tokenId: action,
+          label: 'Analyze Token'
+        }))
       }
-    })
-
-    return response
-  } catch (error) {
-    if (error instanceof RateLimitError) {
-      throw error
     }
-    console.error('Agent error:', error)
-    throw new Error('Failed to process request')
+
+  } catch (error) {
+    logger.error('Error in sendMessage:', error)
+    throw error
   }
 }
 

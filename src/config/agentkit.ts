@@ -98,8 +98,7 @@ export async function getAgent() {
       actions: z.array(z.string()).optional()
     }), {
       llm,
-      prompt,
-      outputParser: undefined,
+      prompt
     })
 
     agentInstance = chain
