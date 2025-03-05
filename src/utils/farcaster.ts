@@ -1,5 +1,4 @@
 import { getFrameMessage, FrameRequest, FrameValidationData } from '@farcaster/frames-sdk'
-import { Client } from '@farcaster/hub-web'
 import { logger } from './logger'
 
 class FarcasterError extends Error {
@@ -9,60 +8,99 @@ class FarcasterError extends Error {
   }
 }
 
-// Initialize Farcaster client
-const farcasterClient = new Client({
-  hubUrl: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.farcaster.xyz',
-  token: process.env.NEXT_PUBLIC_FARCASTER_API_KEY || ''
-})
+// Validate frame message
+export async function validateFrameMessage(req: FrameRequest): Promise<FrameValidationData | null> {
+  try {
+    const frameMessage = await getFrameMessage(req)
+    return frameMessage
+  } catch (error) {
+    logger.error('Failed to validate frame message:', error)
+    return null
+  }
+}
 
+// Search casts
 export async function searchCasts(query: string, limit: number = 10) {
   try {
-    const response = await farcasterClient.searchCasts({
-      query,
-      limit,
+    const response = await fetch(`${process.env.NEXT_PUBLIC_FARCASTER_API_URL}/casts/search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_FARCASTER_API_KEY}`
+      },
+      body: JSON.stringify({ q: query, limit })
     })
-    return response
+
+    if (!response.ok) {
+      throw new FarcasterError('Failed to search casts', response.status)
+    }
+
+    return await response.json()
   } catch (error) {
     logger.error('Failed to search Farcaster casts:', error)
     throw new FarcasterError('Failed to search Farcaster casts')
   }
 }
 
+// Get cast by ID
 export async function getCastById(castId: string) {
   try {
-    const response = await farcasterClient.getCast({
-      hash: castId,
+    const response = await fetch(`${process.env.NEXT_PUBLIC_FARCASTER_API_URL}/casts/${castId}`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_FARCASTER_API_KEY}`
+      }
     })
-    return response
+
+    if (!response.ok) {
+      throw new FarcasterError('Failed to get cast', response.status)
+    }
+
+    return await response.json()
   } catch (error) {
     logger.error('Failed to get Farcaster cast:', error)
     throw new FarcasterError('Failed to get Farcaster cast')
   }
 }
 
+// Get user profile
 export async function getUserProfile(fid: string) {
   try {
-    const response = await farcasterClient.getUser({
-      fid: parseInt(fid),
+    const response = await fetch(`${process.env.NEXT_PUBLIC_FARCASTER_API_URL}/users/${fid}`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_FARCASTER_API_KEY}`
+      }
     })
-    return response
+
+    if (!response.ok) {
+      throw new FarcasterError('Failed to get user profile', response.status)
+    }
+
+    return await response.json()
   } catch (error) {
     logger.error('Failed to get Farcaster user profile:', error)
     throw new FarcasterError('Failed to get Farcaster user profile')
   }
 }
 
+// Get token mentions
 export async function getTokenMentions(tokenName: string, limit: number = 10) {
   try {
-    const response = await farcasterClient.searchCasts({
-      query: `$${tokenName}`,
-      limit,
+    const response = await fetch(`${process.env.NEXT_PUBLIC_FARCASTER_API_URL}/casts/search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_FARCASTER_API_KEY}`
+      },
+      body: JSON.stringify({ q: `$${tokenName}`, limit })
     })
-    return response
+
+    if (!response.ok) {
+      throw new FarcasterError('Failed to get token mentions', response.status)
+    }
+
+    return await response.json()
   } catch (error) {
     logger.error('Failed to get token mentions:', error)
     throw new FarcasterError('Failed to get token mentions')
   }
 }
-
-export { farcasterClient } 

@@ -9,7 +9,11 @@ import {
   cdpWalletActionProvider,
   pythActionProvider,
 } from "@coinbase/agentkit"
-import { farcasterClient } from '@/utils/farcaster'
+import { createReactAgent } from "@langchain/langgraph/prebuilt"
+import { ChatOpenAI } from "@langchain/openai"
+import { AgentExecutor } from "@langchain/core/agents"
+import { HumanMessage } from "@langchain/core/messages"
+import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster'
 
 export const AGENTKIT_CONFIG = {
   API_URL: process.env.AGENTKIT_API_URL || 'https://api.agentkit.coinbase.com',
@@ -53,16 +57,9 @@ export const actionProviders = [
 
 // Farcaster integration
 export const farcasterProvider = {
-  client: farcasterClient,
-  searchCasts: async (query: string, limit: number = 10) => {
-    return farcasterClient.searchCasts({ query, limit })
-  },
-  getTokenMentions: async (tokenName: string, limit: number = 10) => {
-    return farcasterClient.searchCasts({ query: `$${tokenName}`, limit })
-  },
-  getUserProfile: async (fid: string) => {
-    return farcasterClient.getUser({ fid: parseInt(fid) })
-  }
+  searchCasts,
+  getTokenMentions,
+  getUserProfile
 }
 
 export const agentResponseSchema = z.object({
