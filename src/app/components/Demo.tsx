@@ -12,6 +12,10 @@ import { sendMessage } from '@/utils/agentkit'
 import { getTrendingFeed } from '@/utils/mbdAi'
 import type { TokenItem } from '@/types/token'
 import sdk from '@farcaster/frame-sdk'
+import CuratorLeaderboard from '@/components/SocialFi'
+import { TokenGallery } from '@/components/TokenGallery'
+import { AgentChat } from '@/components/agent/agent-chat'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Use the SDK's FrameContext type
 type UserContext = {
@@ -39,6 +43,24 @@ interface TokenMetadata {
   tokenType?: 'ERC20' | 'ERC721'
 }
 
+interface FriendActivity {
+  userId: string
+  username: string
+  action: 'buy' | 'sell' | 'share'
+  tokenId: string
+  timestamp: string
+  category?: 'art' | 'music' | 'culture' | 'media' | 'entertainment'
+  culturalContext?: string
+}
+
+interface Referral {
+  userId: string
+  referredId: string
+  reward: number
+  timestamp: string
+  status: 'pending' | 'completed'
+}
+
 export default function Demo() {
   const config = useConfig()
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
@@ -52,6 +74,9 @@ export default function Demo() {
   const [hasMore, setHasMore] = useState(true)
   const [cursor, setCursor] = useState<string | undefined>()
   const feedEndRef = useRef<HTMLDivElement>(null)
+  const [activeTab, setActiveTab] = useState('feed')
+  const [friendActivities, setFriendActivities] = useState<FriendActivity[]>([])
+  const [referrals, setReferrals] = useState<Referral[]>([])
 
   // Wagmi hooks
   const { address, isConnected } = useAccount()
@@ -267,6 +292,53 @@ export default function Demo() {
     setIsContextOpen((prev) => !prev)
   }, [])
 
+  // Load friend activities
+  const loadFriendActivities = useCallback(async () => {
+    if (!context?.fid) return
+    try {
+      const response = await sendMessage({
+        message: 'Get friend activities',
+        userId: context.fid.toString(),
+        context: { type: 'friend_activity' }
+      })
+      if (response.metadata?.friendActivities) {
+        setFriendActivities(response.metadata.friendActivities)
+      }
+    } catch (error) {
+      console.error('Failed to load friend activities:', error)
+    }
+  }, [context?.fid])
+
+  // Load referrals
+  const loadReferrals = useCallback(async () => {
+    if (!context?.fid) return
+    try {
+      const response = await sendMessage({
+        message: 'Get referrals',
+        userId: context.fid.toString(),
+        context: { type: 'referrals' }
+      })
+      if (response.metadata?.referrals) {
+        const mappedReferrals: Referral[] = response.metadata.referrals.map(ref => ({
+          userId: ref.referrerId || context.fid.toString(),
+          referredId: ref.referredId,
+          reward: ref.reward,
+          timestamp: ref.timestamp,
+          status: 'completed'
+        }))
+        setReferrals(mappedReferrals)
+      }
+    } catch (error) {
+      console.error('Failed to load referrals:', error)
+    }
+  }, [context?.fid])
+
+  // Load data when tab changes
+  useEffect(() => {
+    if (activeTab === 'friends') loadFriendActivities()
+    if (activeTab === 'referrals') loadReferrals()
+  }, [activeTab, loadFriendActivities, loadReferrals])
+
   if (!isSDKLoaded || isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -284,104 +356,116 @@ export default function Demo() {
   }
 
   return (
-    <div className="w-[300px] mx-auto py-4 px-2">
-      <h1 className="text-2xl font-bold text-center mb-4">Prism Frame</h1>
-      
+    <div className="container mx-auto p-4 space-y-6">
       {/* Context Display */}
-      <div className="mb-4">
-        <h2 className="font-2xl font-bold">Context</h2>
-        <button
-          onClick={toggleContext}
-          className="flex items-center gap-2 transition-colors"
-        >
-          <span className={`transform transition-transform ${isContextOpen ? 'rotate-90' : ''}`}>
-            ➤
-          </span>
-          Tap to expand
-        </button>
-
-        {isContextOpen && context && (
-          <div className="p-4 mt-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
-            <pre className="font-mono text-xs whitespace-pre-wrap break-words max-w-[260px]">
-              {JSON.stringify(context, null, 2)}
-            </pre>
-          </div>
-        )}
+      <div className="flex justify-between items-center">
+        <Button onClick={toggleContext} variant="outline">
+          {isContextOpen ? 'Hide Context' : 'Show Context'}
+        </Button>
+        {isConnected ? (
+          <Button onClick={() => disconnect()}>Disconnect</Button>
+        ) : null}
       </div>
 
-      {/* Token Feed */}
-      <div className="space-y-4">
-        {tokens.map((token: TokenItem) => (
-          <div 
-            key={token.id} 
-            className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-all hover:shadow-lg"
-          >
-            {/* Token Image */}
-            <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg mb-4 flex items-center justify-center">
-              {token.image ? (
-                <img 
-                  src={token.image} 
-                  alt={token.name}
-                  className="w-full h-full object-cover rounded-lg"
-                />
-              ) : (
-                <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
-              )}
-            </div>
+      {isContextOpen && context && (
+        <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
+          <pre className="whitespace-pre-wrap">
+            {JSON.stringify(context, null, 2)}
+          </pre>
+        </div>
+      )}
 
-            {/* Token Info */}
-            <div className="space-y-2">
-              <h2 className="font-bold text-lg">{token.name}</h2>
-              <p className="text-sm text-gray-600 dark:text-gray-300">{token.description}</p>
-              <p className="text-sm font-medium">
-                1 ETH = {calculateTokenAmount('1', token.price)} {token.symbol}
-              </p>
-            </div>
+      {/* Main Content */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-4 mb-4">
+          <TabsTrigger value="feed">Feed</TabsTrigger>
+          <TabsTrigger value="curator">Curator</TabsTrigger>
+          <TabsTrigger value="friends">Friends</TabsTrigger>
+          <TabsTrigger value="chat">Chat</TabsTrigger>
+        </TabsList>
 
-            {/* Buy Input */}
-            <div className="mt-4 space-y-2">
-              <input
-                type="number"
-                placeholder="ETH Amount"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                value={ethAmount}
-                onChange={(e) => setEthAmount(e.target.value)}
-                min="0"
-                step="0.01"
-              />
-              <p className="text-sm text-gray-600 dark:text-gray-300">
-                ≈ {calculateTokenAmount(ethAmount, token.price)} {token.symbol}
-              </p>
-            </div>
-
-            {/* Actions */}
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              <Button 
-                onClick={() => handleBuy(token)} 
-                variant="default"
-                disabled={isSendTxPending}
+        <TabsContent value="feed" className="space-y-4">
+          {/* Existing token feed */}
+          <div className="space-y-4">
+            {tokens.map((token: TokenItem) => (
+              <div 
+                key={token.id} 
+                className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-all hover:shadow-lg"
               >
-                {isSendTxPending ? 'Buying...' : isConnected ? 'Buy' : 'Connect'}
-              </Button>
-              <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
-            </div>
+                {/* Token Image */}
+                <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg mb-4 flex items-center justify-center">
+                  {token.image ? (
+                    <img 
+                      src={token.image} 
+                      alt={token.name}
+                      className="w-full h-full object-cover rounded-lg"
+                    />
+                  ) : (
+                    <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
+                  )}
+                </div>
 
-            {sendTxError && (
-              <p className="text-red-500 text-sm mt-2">{sendTxError.message}</p>
-            )}
+                {/* Token Info */}
+                <div className="space-y-2">
+                  <h2 className="font-bold text-lg">{token.name}</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">{token.description}</p>
+                  <p className="text-sm font-medium">
+                    1 ETH = {calculateTokenAmount('1', token.price)} {token.symbol}
+                  </p>
+                </div>
+
+                {/* Buy Input */}
+                <div className="mt-4 space-y-2">
+                  <input
+                    type="number"
+                    placeholder="ETH Amount"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600"
+                    value={ethAmount}
+                    onChange={(e) => setEthAmount(e.target.value)}
+                    min="0"
+                    step="0.01"
+                  />
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    ≈ {calculateTokenAmount(ethAmount, token.price)} {token.symbol}
+                  </p>
+                </div>
+
+                {/* Actions */}
+                <div className="grid grid-cols-2 gap-2 mt-4">
+                  <Button 
+                    onClick={() => handleBuy(token)} 
+                    variant="default"
+                    disabled={isSendTxPending}
+                  >
+                    {isSendTxPending ? 'Buying...' : isConnected ? 'Buy' : 'Connect'}
+                  </Button>
+                  <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
+                </div>
+
+                {sendTxError && (
+                  <p className="text-red-500 text-sm mt-2">{sendTxError.message}</p>
+                )}
+              </div>
+            ))}
+            {/* ... existing loading and infinite scroll code ... */}
           </div>
-        ))}
+        </TabsContent>
 
-        {/* Loading indicator */}
-        {isLoading && (
-          <div className="py-4 flex justify-center">
-            <LoadingSpinner />
-          </div>
-        )}
+        <TabsContent value="curator">
+          <CuratorLeaderboard 
+            userId={context?.fid?.toString()} 
+            onCollect={(tokenId) => handleBuy(tokens.find(t => t.id === tokenId)!)}
+          />
+        </TabsContent>
 
-        {/* Infinite scroll trigger */}
-        <div ref={feedEndRef} className="h-4" />
-      </div>
+        <TabsContent value="friends">
+          <TokenGallery userId={context?.fid?.toString()} />
+        </TabsContent>
+
+        <TabsContent value="chat">
+          <AgentChat />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 } 
