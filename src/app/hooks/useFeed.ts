@@ -1,20 +1,21 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
+import { sendMessage } from '@/utils/agentkit'
 
 export interface TokenItem {
   id: string
   name: string
-  description: string
   symbol: string
+  description: string
   price: number
-  image?: string
-  timestamp: number // For feed sorting
-  score?: number // For AI curation
+  timestamp: number
+  score: number
+  imageUrl?: string
+  culturalScore?: number
 }
 
 interface UseFeedReturn {
   tokens: TokenItem[]
   isLoading: boolean
-  isRefreshing: boolean
   hasMore: boolean
   refresh: () => Promise<void>
   loadMore: () => Promise<void>
@@ -28,38 +29,37 @@ export function useFeed(): UseFeedReturn {
   const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(1)
 
-  // Mock data generator - will be replaced with real API calls
   const fetchTokens = async (pageNum: number) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    // Simulate pagination end after 3 pages
-    if (pageNum > 3) {
+    // Get recommendations from agent with pagination context
+    const response = await sendMessage({
+      message: 'Please recommend some trending cultural tokens based on Farcaster activity',
+      userId: 'feed-view',
+      context: {
+        pagination: {
+          page: pageNum,
+          limit: 10
+        },
+        userPreferences: {
+          interests: ['art', 'music', 'culture']
+        }
+      }
+    })
+
+    if (!response.metadata?.tokenRecommendations) {
       return []
     }
-    
-    const mockTokens: TokenItem[] = [
-      {
-        id: `0x123${pageNum}`,
-        name: 'Digital Culture DAO',
-        symbol: 'DCULT',
-        description: 'Community-driven cultural preservation token',
-        price: 0.001,
-        timestamp: Date.now() - (pageNum * 1000),
-        score: 0.95
-      },
-      {
-        id: `0x456${pageNum}`,
-        name: 'Art Collective Token',
-        symbol: 'ARTCOL',
-        description: 'Empowering digital artists worldwide',
-        price: 0.002,
-        timestamp: Date.now() - (pageNum * 2000),
-        score: 0.88
-      }
-    ]
-    
-    return mockTokens
+
+    // Map recommendations to TokenItem format
+    return response.metadata.tokenRecommendations.map(token => ({
+      id: token.id,
+      name: token.name,
+      symbol: token.symbol,
+      description: token.description,
+      price: parseFloat(token.price) || 0,
+      timestamp: Date.now(),
+      score: token.culturalScore / 100,
+      imageUrl: token.imageUrl
+    }))
   }
 
   const refresh = useCallback(async () => {
@@ -78,37 +78,34 @@ export function useFeed(): UseFeedReturn {
   }, [])
 
   const loadMore = useCallback(async () => {
-    if (isLoading || isRefreshing || !hasMore) return
+    if (isLoading || !hasMore) return
 
     try {
       setIsLoading(true)
-      const nextTokens = await fetchTokens(page + 1)
+      const nextPage = page + 1
+      const newTokens = await fetchTokens(nextPage)
       
-      if (nextTokens.length === 0) {
+      if (newTokens.length === 0) {
         setHasMore(false)
-        return
+      } else {
+        setTokens(prev => [...prev, ...newTokens])
+        setPage(nextPage)
       }
-
-      setTokens(prev => [...prev, ...nextTokens])
-      setPage(prev => prev + 1)
     } catch (error) {
       console.error('Failed to load more tokens:', error)
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, isRefreshing, hasMore, page])
+  }, [isLoading, hasMore, page])
 
   // Initial load
-  useEffect(() => {
-    if (isInitialLoad) {
-      refresh()
-    }
-  }, [refresh, isInitialLoad])
+  if (isInitialLoad) {
+    refresh()
+  }
 
   return {
     tokens,
-    isLoading: isInitialLoad || isLoading,
-    isRefreshing,
+    isLoading,
     hasMore,
     refresh,
     loadMore

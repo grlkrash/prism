@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { analyzeToken, getPersonalizedFeed, tokenDatabase } from '@/utils/mbdAi'
-import { FeedResponse } from '@/utils/mbdAi'
+import { analyzeToken, getPersonalizedFeed } from '@/utils/mbdAi'
+import { sendMessage } from '@/utils/agentkit'
+import { validateFrameRequest } from '@/utils/mbdAi'
 
 function generateFrameHtml({
   imageUrl,
@@ -11,7 +12,7 @@ function generateFrameHtml({
   imageUrl: string
   postUrl: string
   token?: any
-  recommendations?: FeedResponse | null
+  recommendations?: any
 }) {
   const buttons = token ? [
     { label: 'View Details', action: 'view' },
@@ -44,9 +45,18 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
     
+    // Get initial recommendations from agent
+    const response = await sendMessage({
+      message: 'Please recommend some trending cultural tokens based on Farcaster activity',
+      userId: 'initial-view'
+    })
+
+    const token = response.metadata?.tokenRecommendations?.[0]
+    
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: 'https://placehold.co/1200x630/png'
+      imageUrl: token?.imageUrl || 'https://placehold.co/1200x630/png',
+      token
     })
     
     return new NextResponse(html, {
@@ -66,17 +76,30 @@ export async function POST(req: NextRequest) {
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
     
-    // Handle button clicks
-    const data = await req.json()
-    const { buttonIndex, fid } = data.untrustedData || {}
+    // Validate frame request
+    const { isValid, message } = await validateFrameRequest(req)
+    if (!isValid || !message) {
+      throw new Error('Invalid frame request')
+    }
     
-    let currentToken = null
-    let recommendations: FeedResponse | null = null
+    const { button, fid } = message
+    
+    // Get recommendations from agent
+    const response = await sendMessage({
+      message: 'Please recommend some trending cultural tokens based on Farcaster activity',
+      userId: fid ? String(fid) : 'anonymous',
+      context: {
+        farcasterContext: { userFid: fid ? String(fid) : undefined }
+      }
+    })
+
+    let currentToken = response.metadata?.tokenRecommendations?.[0]
+    let recommendations = null
     
     // Handle different button actions
-    switch (buttonIndex) {
+    switch (button) {
       case 1: // View Details/View Gallery
-        currentToken = tokenDatabase[0]
+        currentToken = response.metadata?.tokenRecommendations?.[0]
         break
       case 2: // Buy Token/Get Recommendations
         if (fid) {
@@ -87,7 +110,8 @@ export async function POST(req: NextRequest) {
         // Handle share action
         break
       case 4: // Next
-        // Handle next token
+        // Get next token from recommendations
+        currentToken = response.metadata?.tokenRecommendations?.[1]
         break
     }
     

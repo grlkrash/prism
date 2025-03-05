@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { Token } from '../utils/mbdAi'
+import { sendMessage } from '../utils/agentkit'
 
 interface TokenGalleryProps {
   userId?: string
@@ -16,11 +17,23 @@ export function TokenGallery({ userId }: TokenGalleryProps) {
     async function loadTokens() {
       try {
         setIsLoading(true)
-        // In a real app, this would be an API call
-        const response = await fetch('/api/tokens')
-        if (!response.ok) throw new Error('Failed to load tokens')
-        const data = await response.json()
-        setTokens(data)
+        
+        // Get recommendations from agent
+        const response = await sendMessage({
+          message: 'Please recommend some trending cultural tokens based on Farcaster activity',
+          userId: userId || 'anonymous',
+          context: {
+            userPreferences: {
+              interests: ['art', 'music', 'culture']
+            }
+          }
+        })
+
+        if (response.metadata?.tokenRecommendations) {
+          setTokens(response.metadata.tokenRecommendations)
+        } else {
+          throw new Error('No recommendations found')
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load tokens')
       } finally {
@@ -29,7 +42,7 @@ export function TokenGallery({ userId }: TokenGalleryProps) {
     }
 
     loadTokens()
-  }, [])
+  }, [userId])
 
   if (isLoading) return <div>Loading...</div>
   if (error) return <div>Error: {error}</div>
@@ -39,15 +52,24 @@ export function TokenGallery({ userId }: TokenGalleryProps) {
       {tokens.map((token) => (
         <div key={token.id} className="border rounded-lg overflow-hidden shadow-lg">
           <img
-            src={token.imageUrl}
+            src={token.imageUrl || 'https://placehold.co/400x300/png'}
             alt={token.name}
             className="w-full h-48 object-cover"
           />
           <div className="p-4">
-            <h3 className="text-xl font-bold">{token.name}</h3>
-            <p className="text-gray-600">{token.description}</p>
-            <p className="text-sm text-gray-500">by {token.artistName}</p>
-            <p className="text-lg font-semibold mt-2">{token.price}</p>
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-xl font-bold">{token.name}</h3>
+              <span className="text-sm font-mono bg-gray-100 px-2 py-1 rounded">
+                ${token.symbol}
+              </span>
+            </div>
+            <p className="text-gray-600 mb-2">{token.description}</p>
+            <div className="flex justify-between items-center">
+              <p className="text-lg font-semibold">{token.price}</p>
+              <div className="text-sm text-gray-500">
+                Cultural Score: {token.culturalScore}
+              </div>
+            </div>
             {token.social && (
               <div className="mt-4 flex space-x-4">
                 {token.social.twitter && (
