@@ -1,50 +1,24 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import sdk from '@farcaster/frame-sdk'
 import { Button } from './ui/Button'
-
-interface TokenItem {
-  id: string
-  name: string
-  description: string
-  symbol: string
-  price: number // Price in ETH
-  image?: string
-}
+import { LoadingSpinner } from './ui/LoadingSpinner'
+import { useFeed, type TokenItem } from '../hooks/useFeed'
 
 export default function Demo() {
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [context, setContext] = useState<any>(null)
   const [ethAmount, setEthAmount] = useState<string>('')
-  const [selectedToken, setSelectedToken] = useState<TokenItem | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const feedEndRef = useRef<HTMLDivElement>(null)
 
-  // Mock data for culture/art tokens
-  const tokens: TokenItem[] = [
-    {
-      id: '0x123',
-      name: 'Digital Culture DAO',
-      symbol: 'DCULT',
-      description: 'Community-driven cultural preservation token',
-      price: 0.001, // 1 ETH = 1000 DCULT
-      image: 'https://example.com/dcult.jpg'
-    },
-    {
-      id: '0x456',
-      name: 'Art Collective Token',
-      symbol: 'ARTCOL',
-      description: 'Empowering digital artists worldwide',
-      price: 0.002, // 1 ETH = 500 ARTCOL
-      image: 'https://example.com/artcol.jpg'
-    },
-    {
-      id: '0x789',
-      name: 'Creative Commons Fund',
-      symbol: 'CREATE',
-      description: 'Supporting open-source creativity',
-      price: 0.0005, // 1 ETH = 2000 CREATE
-      image: 'https://example.com/create.jpg'
-    }
-  ]
+  const {
+    tokens,
+    isLoading,
+    hasMore,
+    refresh,
+    loadMore
+  } = useFeed()
 
   useEffect(() => {
     async function load() {
@@ -67,6 +41,29 @@ export default function Demo() {
     load()
   }, [])
 
+  // Infinite scroll observer
+  useEffect(() => {
+    if (!feedEndRef.current) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoading) {
+          loadMore()
+        }
+      },
+      { threshold: 0.5 }
+    )
+
+    observer.observe(feedEndRef.current)
+    return () => observer.disconnect()
+  }, [hasMore, isLoading, loadMore])
+
+  const handlePullToRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    await refresh()
+    setIsRefreshing(false)
+  }, [refresh])
+
   const calculateTokenAmount = (ethAmt: string, tokenPrice: number) => {
     const eth = parseFloat(ethAmt)
     if (isNaN(eth)) return '0'
@@ -75,7 +72,6 @@ export default function Demo() {
 
   const handleBuy = useCallback((token: TokenItem) => {
     if (sdk.actions) {
-      // In real implementation, this would connect to Base for the transaction
       sdk.actions.openUrl(`https://base.org/swap?token=${token.id}&amount=${ethAmount}`)
     }
   }, [ethAmount])
@@ -102,25 +98,38 @@ export default function Demo() {
     <div className="w-[300px] mx-auto py-4 px-2">
       <h1 className="text-2xl font-bold text-center mb-4">Culture Tokens</h1>
       
-      <div className="space-y-6">
+      {/* Pull to refresh indicator */}
+      {isRefreshing && (
+        <div className="py-2 text-center">
+          <LoadingSpinner />
+        </div>
+      )}
+
+      {/* Token Feed */}
+      <div className="space-y-4">
         {tokens.map(token => (
-          <div key={token.id} className="bg-white rounded-lg shadow p-4">
+          <div 
+            key={token.id} 
+            className="bg-white rounded-lg shadow p-4 transition-all hover:shadow-lg"
+          >
             {/* Token Image */}
             <div className="aspect-video bg-gray-200 rounded-lg mb-4 flex items-center justify-center">
               <span className="text-gray-500">{token.symbol}</span>
             </div>
 
             {/* Token Info */}
-            <h2 className="font-bold mb-1">{token.name}</h2>
-            <p className="text-sm text-gray-600 mb-2">{token.description}</p>
-            <p className="text-sm font-medium mb-4">1 ETH = {(1/token.price).toFixed(0)} {token.symbol}</p>
+            <div className="space-y-2">
+              <h2 className="font-bold text-lg">{token.name}</h2>
+              <p className="text-sm text-gray-600">{token.description}</p>
+              <p className="text-sm font-medium">1 ETH = {(1/token.price).toFixed(0)} {token.symbol}</p>
+            </div>
 
             {/* Buy Input */}
-            <div className="space-y-2 mb-4">
+            <div className="mt-4 space-y-2">
               <input
                 type="number"
                 placeholder="ETH Amount"
-                className="w-full px-3 py-2 border rounded-lg"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 value={ethAmount}
                 onChange={(e) => setEthAmount(e.target.value)}
                 min="0"
@@ -132,12 +141,22 @@ export default function Demo() {
             </div>
 
             {/* Actions */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 mt-4">
               <Button onClick={() => handleBuy(token)} variant="primary">Buy</Button>
               <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
             </div>
           </div>
         ))}
+
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="py-4">
+            <LoadingSpinner />
+          </div>
+        )}
+
+        {/* Infinite scroll trigger */}
+        <div ref={feedEndRef} className="h-4" />
       </div>
 
       {/* Debug: Context */}
