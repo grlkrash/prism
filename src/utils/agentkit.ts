@@ -133,7 +133,7 @@ export async function getAgent() {
   return agentInstance
 }
 
-export async function sendMessage(request: unknown): Promise<any> {
+export async function sendMessage(request: unknown): Promise<AgentResponse> {
   try {
     // Validate request
     const { message, userId, context } = z.object({
@@ -149,51 +149,37 @@ export async function sendMessage(request: unknown): Promise<any> {
 
     // Get agent instance
     const agent = await getAgent()
-    
-    // Generate thread ID
     const threadId = `grlkrash-agent-${crypto.randomUUID()}`
     
     // Call agent with message and thread ID
     const result = await agent.invoke({
       messages: [new HumanMessage(message)],
-      configurable: {
-        thread_id: threadId
-      }
+      configurable: { thread_id: threadId }
     })
 
     // Extract content from result
     let content = ''
-    try {
-      if (typeof result === 'string') {
-        content = result
-      } else if (result?.content) {
-        content = typeof result.content === 'string' 
-          ? result.content 
-          : JSON.stringify(result.content)
-      } else if (result?.messages?.[0]?.content) {
-        content = typeof result.messages[0].content === 'string'
-          ? result.messages[0].content
-          : JSON.stringify(result.messages[0].content)
-      }
-    } catch (err) {
-      logger.error('Error extracting content:', err)
-      content = 'Error processing response'
+    if (result?.messages?.[0]?.content) {
+      content = result.messages[0].content
     }
 
     // Extract recommendations and actions
     const tokenRecommendations = extractTokenRecommendations(content)
     const actions = extractActions(content)
 
-    return {
+    // Validate response format
+    const response = {
       id: threadId,
       content,
-      role: 'assistant',
+      role: 'assistant' as const,
       timestamp: new Date().toISOString(),
       metadata: {
         tokenRecommendations,
         actions
       }
     }
+
+    return agentResponseSchema.parse(response)
 
   } catch (error) {
     logger.error('Error in sendMessage:', error)
@@ -207,12 +193,34 @@ export async function sendMessage(request: unknown): Promise<any> {
   }
 }
 
-function extractTokenRecommendations(content: string) {
+function extractTokenRecommendations(content: unknown): any[] {
   try {
     if (!content) return []
     
-    // Extract recommendations section
-    const recommendationsMatch = content.match(/Token Recommendations:([\s\S]*?)(?=Actions:|$)/)
+    // Ensure content is a string
+    const contentStr = typeof content === 'object' 
+      ? JSON.stringify(content)
+      : String(content)
+    
+    // Try parsing as JSON first
+    try {
+      const parsed = JSON.parse(contentStr)
+      if (Array.isArray(parsed?.recommendations)) {
+        return parsed.recommendations.map(rec => ({
+          id: crypto.randomUUID(),
+          name: rec.name || 'Unknown Token',
+          description: rec.description || '',
+          imageUrl: rec.imageUrl || '',
+          price: rec.price || '0',
+          culturalScore: Math.random() * 100
+        }))
+      }
+    } catch (e) {
+      // Not JSON, continue with text parsing
+    }
+    
+    // Extract recommendations section using regex
+    const recommendationsMatch = contentStr.match(/Token Recommendations:([\s\S]*?)(?=Actions:|$)/)
     if (!recommendationsMatch) return []
     
     const recommendationsText = recommendationsMatch[1].trim()
@@ -228,7 +236,7 @@ function extractTokenRecommendations(content: string) {
           description: match[2].trim(),
           imageUrl: '', // Will be populated by MBD AI
           price: '0',
-          culturalScore: Math.random() * 100 // Placeholder
+          culturalScore: Math.random() * 100
         }
       })
       .filter(Boolean)

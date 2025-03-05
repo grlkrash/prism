@@ -14,7 +14,6 @@ import { SystemMessage, HumanMessage } from "@langchain/core/messages"
 import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { ChatPromptTemplate } from "@langchain/core/prompts"
-import { JsonOutputFunctionsParser } from "@langchain/core/output_parsers"
 
 export const AGENTKIT_CONFIG = {
   API_URL: process.env.AGENTKIT_API_URL || 'https://api.agentkit.coinbase.com',
@@ -99,7 +98,8 @@ export async function getAgent() {
   if (!agentInstance) {
     const prompt = ChatPromptTemplate.fromMessages([
       ["system", `${AGENTKIT_CONFIG.SYSTEM_PROMPT}
-When recommending tokens, always respond in this format:
+
+You are a cultural token recommendation agent. When recommending tokens, ALWAYS respond in this EXACT format:
 
 Token Recommendations:
 1. [token name]: [description]
@@ -109,18 +109,36 @@ Token Recommendations:
 Actions:
 view|[tokenId]|View Details
 buy|[tokenId]|Buy Now
-share|[tokenId]|Share
-`],
+share|[tokenId]|Share Token
+
+Do not include any other text or formatting in your response.`],
       ["human", "{input}"]
     ])
 
     const chain = {
       invoke: async ({ messages, configurable }: { messages: any[], configurable: any }) => {
-        const formattedMessages = await prompt.formatMessages({
-          input: messages[messages.length - 1].content
-        })
-        const response = await llm.invoke(formattedMessages, { configurable })
-        return { messages: [response] }
+        // Ensure thread_id is present
+        const config = {
+          ...configurable,
+          thread_id: configurable?.thread_id || `grlkrash-agent-${crypto.randomUUID()}`
+        }
+
+        try {
+          const formattedMessages = await prompt.formatMessages({
+            input: messages[messages.length - 1].content
+          })
+          const response = await llm.invoke(formattedMessages, { configurable: config })
+          
+          // Ensure response is a string
+          const content = typeof response.content === 'object' 
+            ? JSON.stringify(response.content)
+            : String(response.content)
+
+          return { messages: [{ content }] }
+        } catch (error) {
+          console.error('Error in agent chain:', error)
+          throw error
+        }
       }
     }
 
