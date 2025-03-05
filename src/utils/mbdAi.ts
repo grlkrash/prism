@@ -251,6 +251,10 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
   return contentScore > 0.6 || imageScore > 0.6
 }
 
+interface TokenWithScore extends Token {
+  culturalScore?: number
+}
+
 export async function getPersonalizedFeed(userId: string, preferences?: {
   categories?: string[]
   minSentiment?: number
@@ -268,13 +272,13 @@ export async function getPersonalizedFeed(userId: string, preferences?: {
       }
     }, userId)
     
-    const tokens = recommendations.tokens.map((token: Token) => ({
+    const tokens: TokenWithScore[] = recommendations.tokens.map((token: Token) => ({
       ...token,
       culturalScore: calculateCulturalScore(token)
     }))
 
     if (preferences?.prioritizeCulturalTokens) {
-      tokens.sort((a, b) => (b.culturalScore || 0) - (a.culturalScore || 0))
+      tokens.sort((a: TokenWithScore, b: TokenWithScore) => (b.culturalScore || 0) - (a.culturalScore || 0))
     }
     
     return tokens
