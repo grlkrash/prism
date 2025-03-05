@@ -1,160 +1,63 @@
-import { NobleEd25519Signer } from "@farcaster/hub-nodejs"
 import { logger } from './logger'
 
-interface FarcasterCast {
+export interface FarcasterCast {
   hash: string
+  threadHash: string
+  parentHash?: string
   author: {
     fid: number
     username: string
-    displayName?: string
+    displayName: string
+    pfp: string
   }
   text: string
-  timestamp: string
+  timestamp: number
   reactions: {
     likes: number
     recasts: number
   }
-  replies?: {
-    count: number
-  }
 }
 
-interface FarcasterUser {
-  fid: number
-  username: string
-  displayName?: string
-  following: {
-    count: number
-  }
-  followers: {
-    count: number
-  }
-}
-
-class FarcasterError extends Error {
-  constructor(message: string, public status?: number, public code?: string) {
+export class FarcasterError extends Error {
+  constructor(message: string) {
     super(message)
     this.name = 'FarcasterError'
   }
 }
 
-// Warpcast API configuration
-const WARPCAST_API_URL = 'https://api.warpcast.com'
-
-// Auth token generation
-export async function generateAuthToken() {
-  try {
-    const fid = process.env.FARCASTER_FID
-    const privateKey = process.env.FARCASTER_PRIVATE_KEY
-    const publicKey = process.env.FARCASTER_PUBLIC_KEY
-    
-    if (!fid || !privateKey || !publicKey) {
-      throw new Error('Missing Farcaster credentials')
-    }
-
-    const signer = new NobleEd25519Signer(new Uint8Array(Buffer.from(privateKey)))
-    
-    const header = {
-      fid: Number(fid),
-      type: 'app_key',
-      key: publicKey
-    }
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url')
-    
-    const payload = { exp: Math.floor(Date.now() / 1000) + 300 } // 5 minutes
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url')
-    
-    const signatureResult = await signer.signMessageHash(
-      Buffer.from(`${encodedHeader}.${encodedPayload}`, 'utf-8')
-    )
-    
-    if (signatureResult.isErr()) {
-      throw new Error("Failed to sign message")
-    }
-    
-    const encodedSignature = Buffer.from(signatureResult.value).toString("base64url")
-    return `${encodedHeader}.${encodedPayload}.${encodedSignature}`
-  } catch (error) {
-    logger.error('Failed to generate auth token:', error)
-    throw error
-  }
+async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
+  const response = await fetch(`/api/farcaster?endpoint=${encodeURIComponent(endpoint)}`, options)
+  if (!response.ok) throw new FarcasterError(`API error: ${response.statusText}`)
+  return response.json()
 }
 
-// Helper function to make API requests
-async function warpcastRequest(endpoint: string) {
+// Get user's following
+export async function getFarcasterFollowing(fid: string | number, limit: number = 100) {
   try {
-    const authToken = await generateAuthToken()
-    const response = await fetch(`${WARPCAST_API_URL}${endpoint}`, {
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`
-      }
-    })
-
-    if (!response.ok) {
-      throw new FarcasterError(`API request failed: ${response.statusText}`, response.status)
-    }
-
-    const data = await response.json()
-    return data
-  } catch (error) {
-    logger.error(`Warpcast API error for ${endpoint}:`, error)
-    throw error
-  }
-}
-
-// Get user profile
-export async function getUserProfile(fid: string) {
-  try {
-    const data = await warpcastRequest(`/v1/user?fid=${fid}`)
-    return data.result.user
-  } catch (error) {
-    logger.error('Failed to get Farcaster user profile:', error)
-    throw new FarcasterError('Failed to get Farcaster user profile')
-  }
-}
-
-// Get user's following list
-export async function getFarcasterFollowing(fid: string): Promise<FarcasterUser[]> {
-  try {
-    const response = await fetch(`/api/farcaster/following?fid=${fid}`)
-    if (!response.ok) throw new Error('Failed to fetch following')
-    const data = await response.json()
+    const data = await farcasterRequest(`/following?fid=${fid}&limit=${limit}`)
     return data.result?.users || []
   } catch (error) {
-    logger.error('Error fetching Farcaster following:', error)
-    return []
+    logger.error('Failed to get following:', error)
+    throw new FarcasterError('Failed to get following')
   }
 }
 
 // Get user's casts
-export async function getFarcasterCasts(fid: string, limit: number = 10): Promise<FarcasterCast[]> {
+export async function getFarcasterCasts(fid: string | number, limit: number = 100) {
   try {
-    const data = await warpcastRequest(`/v2/casts?fid=${fid}&limit=${limit}`)
+    const data = await farcasterRequest(`/casts?fid=${fid}&limit=${limit}`)
     return data.result?.casts || []
   } catch (error) {
-    logger.error('Error fetching Farcaster casts:', error)
-    return []
-  }
-}
-
-// Search casts
-export async function searchCasts(query: string, limit: number = 10) {
-  try {
-    const data = await warpcastRequest(`/v2/search-casts?q=${encodeURIComponent(query)}&limit=${limit}`)
-    return data.result.casts
-  } catch (error) {
-    logger.error('Failed to search Farcaster casts:', error)
-    throw new FarcasterError('Failed to search Farcaster casts')
+    logger.error('Failed to get casts:', error)
+    throw new FarcasterError('Failed to get casts')
   }
 }
 
 // Get token mentions
 export async function getTokenMentions(tokenName: string, limit: number = 10) {
   try {
-    const data = await warpcastRequest(`/v2/search-casts?q=$${tokenName}&limit=${limit}`)
-    return data.result.casts
+    const data = await farcasterRequest(`/search-casts?q=$${tokenName}&limit=${limit}`)
+    return data.result?.casts || []
   } catch (error) {
     logger.error('Failed to get token mentions:', error)
     throw new FarcasterError('Failed to get token mentions')

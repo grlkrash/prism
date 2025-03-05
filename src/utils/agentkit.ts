@@ -2,7 +2,7 @@ import { AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, g
 import { logger } from './logger'
 import { analyzeToken, Token } from './mbdAi'
 import { HumanMessage } from "@langchain/core/messages"
-import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions } from './farcaster-client'
+import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions } from './farcaster'
 
 // SocialFi types
 interface FriendActivity {

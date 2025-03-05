@@ -107,9 +107,9 @@ export default function Demo() {
           image: cast.author.pfp,
           category: 'cultural',
           metadata: {
-            authorFid: cast.author.fid,
+            authorFid: String(cast.author.fid),
             authorUsername: cast.author.username,
-            timestamp: cast.timestamp,
+            timestamp: Number(cast.timestamp),
             likes: cast.reactions.likes,
             recasts: cast.reactions.recasts
           }

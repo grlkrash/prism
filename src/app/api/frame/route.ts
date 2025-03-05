@@ -54,7 +54,7 @@ function generateFrameHtml({
   imageUrl?: string
   postUrl: string
   token?: TokenItem
-  recommendations?: any
+  recommendations?: TokenItem[]
   friendActivities?: any[]
   referrals?: any[]
   errorMessage?: string
@@ -138,31 +138,31 @@ export async function POST(req: NextRequest) {
     
     // Validate frame request
     const body = await req.json()
-    const { untrustedData, trustedData } = body
+    const validationResult = await validateFrameRequest(body)
     
-    if (!untrustedData?.buttonIndex || !trustedData?.messageBytes) {
+    if (!validationResult.isValid || !validationResult.message) {
       throw new Error('Invalid frame request')
     }
-
-    const message = await validateFrameRequest(body)
-    if (!message) throw new Error('Invalid frame request')
     
-    const { button, fid } = message
+    // Extract validated data
+    const { message } = validationResult
+    const button = message.button || 1 // Default to first button if not specified
+    const fid = message.fid
     
     // Get recommendations based on user context
     const response = await sendMessage({
       message: fid 
         ? 'Please recommend personalized art and cultural tokens based on user preferences'
         : 'Please analyze trending art and cultural tokens on Farcaster',
-      userId: fid ? String(fid) : 'anonymous',
+      userId: fid || 'anonymous',
       threadId: `grlkrash-frame-${randomUUID()}`,
       context: fid ? {
-        farcasterContext: { userFid: String(fid) }
+        farcasterContext: { userFid: fid }
       } : undefined
     })
 
     let currentToken = response.metadata?.tokenRecommendations?.[0]
-    let recommendations = null
+    let recommendations: TokenItem[] | undefined = undefined
     let friendActivities: any[] | undefined = undefined
     let referrals: any[] | undefined = undefined
     let errorMessage: string | undefined
@@ -174,7 +174,29 @@ export async function POST(req: NextRequest) {
         break
       case 2: // Buy Token/Get Recommendations
         if (fid) {
-          recommendations = await getPersonalizedFeed(fid)
+          const feedResponse = await getPersonalizedFeed(fid)
+          if (feedResponse?.casts) {
+            recommendations = feedResponse.casts.map(cast => ({
+              id: cast.hash,
+              name: cast.author.username,
+              symbol: 'TOKEN',
+              description: cast.text,
+              price: 0,
+              image: cast.author.pfp,
+              imageUrl: cast.author.pfp,
+              artistName: cast.author.displayName,
+              culturalScore: cast.reactions.likes,
+              tokenType: 'ERC20' as const,
+              metadata: {
+                artistName: cast.author.displayName,
+                culturalScore: cast.reactions.likes,
+                tokenType: 'ERC20',
+                timestamp: Number(cast.timestamp),
+                likes: cast.reactions.likes,
+                recasts: cast.reactions.recasts
+              }
+            }))
+          }
         } else {
           errorMessage = '🔒 Sign in with Farcaster to get personalized recommendations'
         }
@@ -199,24 +221,47 @@ export async function POST(req: NextRequest) {
 
     // Analyze token if we have one
     if (currentToken) {
-      const tokenWithId = {
-        ...currentToken,
-        id: String(currentToken.id || '0'),
-        price: typeof currentToken.price === 'string' ? parseFloat(currentToken.price) : currentToken.price || 0,
-        metadata: {
-          artistName: 'Unknown Artist',
-          culturalScore: 0,
-          tokenType: 'ERC20'
-        }
-      } as TokenItem
+      // Convert TokenItem to Token for analysis
+      const tokenForAnalysis = {
+        id: currentToken.id,
+        name: currentToken.name,
+        symbol: currentToken.symbol,
+        description: currentToken.description,
+        imageUrl: currentToken.imageUrl || currentToken.image || 'https://picsum.photos/800/600',
+        artistName: currentToken.artistName || 'Unknown Artist',
+        price: String(currentToken.price || 0),
+        culturalScore: currentToken.culturalScore || 0,
+        tokenType: 'ERC20' as const
+      }
 
-      currentToken = await analyzeToken(tokenWithId)
+      const analyzedToken = await analyzeToken(tokenForAnalysis)
+      
+      // Convert analyzed Token back to TokenItem
+      currentToken = {
+        ...currentToken,
+        id: String(analyzedToken.id),
+        name: analyzedToken.name,
+        symbol: analyzedToken.symbol,
+        description: analyzedToken.description,
+        imageUrl: analyzedToken.imageUrl,
+        image: analyzedToken.imageUrl,
+        artistName: analyzedToken.artistName,
+        price: parseFloat(analyzedToken.price),
+        culturalScore: analyzedToken.culturalScore,
+        tokenType: analyzedToken.tokenType,
+        metadata: {
+          ...currentToken.metadata,
+          artistName: analyzedToken.artistName,
+          culturalScore: analyzedToken.culturalScore,
+          tokenType: analyzedToken.tokenType
+        }
+      }
     }
 
     const html = generateFrameHtml({
-      imageUrl: currentToken?.image || 'https://picsum.photos/800/600',
+      imageUrl: currentToken?.image || currentToken?.imageUrl || 'https://picsum.photos/800/600',
       postUrl: `${hostUrl}/api/frame`,
-      token: currentToken as TokenItem | undefined,
+      token: currentToken,
       recommendations,
       friendActivities,
       referrals,
