@@ -49,19 +49,88 @@ describe('MBD AI Integration Tests', () => {
               }
             }
           ],
-          next: {
-            cursor: 'next-cursor'
-          }
+          next: { cursor: 'next-page' }
         }
       }
 
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockResponse)
+        json: async () => mockResponse
       })
 
-      const result = await getPersonalizedFeed(TEST_USER_ID, TEST_CURSOR)
+      const result = await getPersonalizedFeed()
+      expect(result).toEqual(mockResponse.data)
+    })
+
+    it('should fetch and filter cultural tokens from trending feed', async () => {
+      const mockCasts = [
+        {
+          hash: '0x123',
+          author: { fid: 1, username: 'artist1' },
+          text: 'Cultural NFT #1',
+          timestamp: '2024-03-20T12:00:00Z',
+          reactions: { likes: 10, recasts: 5 },
+          aiAnalysis: {
+            category: 'art',
+            sentiment: 0.8,
+            popularity: 0.7,
+            aiScore: 0.9,
+            culturalContext: 'Contemporary Art',
+            hasCulturalElements: true
+          }
+        },
+        {
+          hash: '0x456',
+          author: { fid: 2, username: 'user2' },
+          text: 'Regular post',
+          timestamp: '2024-03-20T12:00:00Z',
+          reactions: { likes: 5, recasts: 2 },
+          aiAnalysis: {
+            category: 'general',
+            sentiment: 0.5,
+            popularity: 0.3,
+            aiScore: 0.4,
+            hasCulturalElements: false
+          }
+        }
+      ]
+
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { casts: mockCasts } })
+      })
+
+      const result = await getTrendingFeed()
+      expect(result.casts).toHaveLength(2)
+      expect(result.casts[0].aiAnalysis.hasCulturalElements).toBe(true)
+      expect(result.casts[0].aiAnalysis.category).toBe('art')
+    })
+
+    it('should handle API errors gracefully', async () => {
+      ;(global.fetch as jest.Mock).mockRejectedValueOnce(new Error('API Error'))
       
+      await expect(getTrendingFeed()).rejects.toThrow('API Error')
+      expect(logger.error).toHaveBeenCalled()
+    })
+
+    it('should handle pagination correctly', async () => {
+      const mockFirstPage = {
+        data: {
+          casts: [{ hash: '0x123' }],
+          next: { cursor: 'page2' }
+        }
+      }
+
+      const mockSecondPage = {
+        data: {
+          casts: [{ hash: '0x456' }],
+          next: null
+        }
+      }
+
+      ;(global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
       expect(result).toEqual(mockResponse.data)
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/casts/feed/for-you'),
