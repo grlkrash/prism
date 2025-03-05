@@ -14,6 +14,7 @@ import { ChatOpenAI } from "@langchain/openai"
 import { AgentExecutor } from "@langchain/core/agents"
 import { HumanMessage } from "@langchain/core/messages"
 import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster'
+import { Tool } from '@langchain/core/tools'
 
 export const AGENTKIT_CONFIG = {
   API_URL: process.env.AGENTKIT_API_URL || 'https://api.agentkit.coinbase.com',
@@ -55,12 +56,46 @@ export const actionProviders = [
   }),
 ]
 
-// Farcaster integration
-export const farcasterProvider = {
-  searchCasts,
-  getTokenMentions,
-  getUserProfile
-}
+// Farcaster tools
+const farcasterTools = [
+  new Tool({
+    name: 'searchCasts',
+    description: 'Search Farcaster casts for cultural tokens and trends',
+    func: async (query: string) => {
+      const results = await searchCasts(query)
+      return JSON.stringify(results)
+    }
+  }),
+  new Tool({
+    name: 'getUserProfile',
+    description: 'Get a Farcaster user profile',
+    func: async (fid: string) => {
+      const profile = await getUserProfile(fid)
+      return JSON.stringify(profile)
+    }
+  }),
+  new Tool({
+    name: 'getTokenMentions',
+    description: 'Get mentions of a specific token on Farcaster',
+    func: async (tokenName: string) => {
+      const mentions = await getTokenMentions(tokenName)
+      return JSON.stringify(mentions)
+    }
+  })
+]
+
+// Initialize the agent
+const llm = new ChatOpenAI({
+  modelName: AGENTKIT_CONFIG.MODEL,
+  temperature: AGENTKIT_CONFIG.TEMPERATURE,
+  maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
+})
+
+export const agent = createReactAgent({
+  llm,
+  tools: [...actionProviders, ...farcasterTools],
+  systemMessage: AGENTKIT_CONFIG.SYSTEM_PROMPT,
+})
 
 export const agentResponseSchema = z.object({
   id: z.string(),
