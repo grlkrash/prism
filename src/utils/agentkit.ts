@@ -93,20 +93,33 @@ async function initializeAgent() {
 
     const tools = await getLangChainTools(agentkit)
 
-    // Create React Agent with thread_id configuration
+    // Create React Agent with proper thread_id configuration
     const agent = createReactAgent({
       llm,
       tools,
       checkpointSaver: memory,
       messageModifier: AGENTKIT_CONFIG.SYSTEM_PROMPT,
-      config: {
-        configurable: {
-          thread_id: "grlkrash-agent-" + crypto.randomUUID()
-        }
-      }
     })
 
-    return agent
+    // Wrap the agent to inject thread_id into each call
+    const wrappedAgent = {
+      invoke: async (input: any) => {
+        return agent.invoke(input, {
+          configurable: {
+            thread_id: `grlkrash-agent-${crypto.randomUUID()}`
+          }
+        })
+      },
+      stream: async (input: any) => {
+        return agent.stream(input, {
+          configurable: {
+            thread_id: `grlkrash-agent-${crypto.randomUUID()}`
+          }
+        })
+      }
+    }
+
+    return wrappedAgent
   } catch (error) {
     logger.error('Failed to initialize agent:', error)
     throw error
@@ -137,31 +150,20 @@ export async function sendMessage(request: unknown): Promise<any> {
     // Get agent instance
     const agent = await getAgent()
     
-    // Generate thread ID
-    const threadId = userId ? `user-${userId}` : `anonymous-${crypto.randomUUID()}`
-    
     // Call agent with message
     const result = await agent.invoke({
-      messages: [new HumanMessage(message)],
-      config: {
-        configurable: {
-          thread_id: threadId
-        }
-      }
+      input: message
     })
 
-    // Extract content from agent response
-    const content = result.generations[0].text || result.output || ''
-    
     // Format response
     return {
       id: crypto.randomUUID(),
-      content,
+      content: result.response || result.output || '',
       role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
-        tokenRecommendations: extractTokenRecommendations(content),
-        actions: extractActions(content)
+        tokenRecommendations: extractTokenRecommendations(result.response || ''),
+        actions: result.actions || []
       }
     }
 

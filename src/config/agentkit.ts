@@ -14,10 +14,7 @@ import { SystemMessage, HumanMessage } from "@langchain/core/messages"
 import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { ChatPromptTemplate } from "@langchain/core/prompts"
-import { StructuredOutputParser } from "@langchain/core/output_parsers"
-import { createReactAgent } from "@langchain/langgraph/prebuilt"
-import { MemorySaver } from "@langchain/langgraph"
-import { RunnableConfig } from "@langchain/core/runnables"
+import { JsonOutputFunctionsParser } from "@langchain/core/output_parsers"
 
 export const AGENTKIT_CONFIG = {
   API_URL: process.env.AGENTKIT_API_URL || 'https://api.agentkit.coinbase.com',
@@ -49,7 +46,7 @@ export interface AgentOutput {
   actions?: string[]
 }
 
-// Initialize tools and memory
+// Initialize tools
 const tools = [
   new DynamicStructuredTool({
     name: "searchCasts",
@@ -85,15 +82,15 @@ const tools = [
   })
 ]
 
-const memory = new MemorySaver()
-
-// Initialize the model with streaming disabled
+// Initialize the model
 const llm = new ChatOpenAI({
   modelName: AGENTKIT_CONFIG.MODEL,
   temperature: AGENTKIT_CONFIG.TEMPERATURE,
   maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
   openAIApiKey: process.env.OPENAI_API_KEY,
-  streaming: false
+  modelKwargs: {
+    response_format: { type: "json_object" }
+  }
 })
 
 let agentInstance: any = null
@@ -101,14 +98,15 @@ let agentInstance: any = null
 // Create agent chain
 export async function getAgent() {
   if (!agentInstance) {
-    const agent = await createReactAgent({
-      llm,
-      tools,
-      systemMessage: AGENTKIT_CONFIG.SYSTEM_PROMPT,
-      checkpointSaver: memory
-    })
-    
-    agentInstance = agent
+    const prompt = ChatPromptTemplate.fromMessages([
+      ["system", AGENTKIT_CONFIG.SYSTEM_PROMPT],
+      ["human", "{input}"]
+    ])
+
+    const outputParser = new JsonOutputFunctionsParser()
+
+    const chain = prompt.pipe(llm).pipe(outputParser)
+    agentInstance = chain
   }
   return agentInstance
 }
