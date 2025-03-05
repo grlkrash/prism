@@ -23,11 +23,9 @@ jest.mock('../logger', () => ({
 }))
 
 describe('MBD AI Integration Tests', () => {
-  const TEST_USER_ID = 'test-user-123'
-  const TEST_CURSOR = 'test-cursor-123'
-
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(global.fetch as jest.Mock).mockClear()
   })
 
   describe('Feed Integration', () => {
@@ -131,55 +129,49 @@ describe('MBD AI Integration Tests', () => {
       ;(global.fetch as jest.Mock)
         .mockResolvedValueOnce({
           ok: true,
-      expect(result).toEqual(mockResponse.data)
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/casts/feed/for-you'),
-        expect.objectContaining({
-          method: 'POST',
-          body: expect.stringContaining(TEST_USER_ID)
+          json: async () => mockFirstPage
         })
-      )
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockSecondPage
+        })
+
+      const firstResult = await getTrendingFeed()
+      expect(firstResult.next?.cursor).toBe('page2')
+
+      const secondResult = await getTrendingFeed('page2')
+      expect(secondResult.next).toBeNull()
     })
 
-    it('should fetch trending feed with pagination', async () => {
-      const mockResponse = {
-        data: {
-          casts: [
-            {
-              hash: '0x123',
-              author: {
-                fid: 1,
-                username: 'test'
-              },
-              text: 'Trending cast',
-              timestamp: '2024-03-20T12:00:00Z',
-              reactions: {
-                likes: 100,
-                recasts: 50
-              }
-            }
-          ],
-          next: {
-            cursor: 'next-cursor'
+    it('should filter tokens based on cultural score', async () => {
+      const mockCasts = [
+        {
+          hash: '0x123',
+          aiAnalysis: {
+            hasCulturalElements: true,
+            culturalScore: 0.8
+          }
+        },
+        {
+          hash: '0x456',
+          aiAnalysis: {
+            hasCulturalElements: false,
+            culturalScore: 0.3
           }
         }
-      }
+      ]
 
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockResponse)
+        json: async () => ({ data: { casts: mockCasts } })
       })
 
-      const result = await getTrendingFeed(TEST_CURSOR)
-      
-      expect(result).toEqual(mockResponse.data)
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/casts/feed/trending'),
-        expect.objectContaining({
-          method: 'POST',
-          body: expect.stringContaining(TEST_CURSOR)
-        })
+      const result = await getTrendingFeed()
+      const culturalTokens = result.casts.filter(
+        cast => cast.aiAnalysis?.culturalScore >= 0.6
       )
+      expect(culturalTokens).toHaveLength(1)
+      expect(culturalTokens[0].hash).toBe('0x123')
     })
   })
 

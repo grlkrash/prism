@@ -23,6 +23,15 @@ export interface Token {
   price: string
   culturalScore: number
   tokenType: 'ERC20'
+  aiAnalysis?: {
+    culturalScore?: number
+    hasCulturalElements?: boolean
+    category?: string
+    tags?: string[]
+    sentiment?: string | number
+    popularity?: number
+    aiScore?: number
+  }
   social?: {
     twitter?: string
     discord?: string
@@ -352,31 +361,32 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
 }
 
 export async function analyzeToken(token: Token): Promise<Token> {
-  try {
-    if (!MBD_API_KEY) {
-      // Return token as-is if no API key
-      return token
-    }
+  const url = new URL('/analyze/token', MBD_AI_CONFIG.API_URL)
+  
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      ...MBD_AI_CONFIG.getHeaders(),
+      'Authorization': `Bearer ${process.env.MBD_API_KEY}`
+    },
+    body: JSON.stringify({ token })
+  })
 
-    const response = await fetch(`${MBD_API_URL}/analyze/token`, {
-      method: 'POST',
-      headers: MBD_AI_CONFIG.getHeaders(),
-      body: JSON.stringify(token)
-    })
+  if (!response.ok) {
+    throw new Error(`Failed to analyze token: ${response.statusText}`)
+  }
 
-    if (!response.ok) {
-      throw new MbdApiError('Failed to analyze token', response.status)
+  const { data } = await response.json()
+  return {
+    ...token,
+    metadata: data.metadata,
+    aiAnalysis: {
+      ...data.metadata,
+      culturalScore: calculateCulturalScore({
+        ...token,
+        metadata: data.metadata
+      })
     }
-
-    const data = await response.json()
-    return {
-      ...token,
-      ...data
-    }
-  } catch (error) {
-    logger.error('Error analyzing token:', error)
-    // Return original token if analysis fails
-    return token
   }
 }
 
@@ -418,58 +428,73 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
   return contentScore > 0.6 || imageScore > 0.6
 }
 
-export async function getPersonalizedFeed(cursor?: string): Promise<FeedResponse> {
-  try {
-    const endpoint = MBD_AI_CONFIG.CLIENT_ENDPOINTS.FOR_YOU_FEED
-    const url = new URL(endpoint, window.location.origin)
-    if (cursor) {
-      url.searchParams.append('cursor', cursor)
-    }
-
-    const response = await fetch(url.toString())
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to fetch personalized feed: ${error}`)
-    }
-
-    const data = await response.json()
-    return data
-  } catch (error) {
-    logger.error('Error fetching personalized feed:', error)
-    throw new Error(`Failed to fetch personalized feed: ${error instanceof Error ? error.message : String(error)}`)
+export async function getPersonalizedFeed(cursor?: string) {
+  if (!process.env.MBD_API_KEY) {
+    throw new Error('MBD API key not found')
   }
+
+  const url = new URL(MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_FOR_YOU, MBD_AI_CONFIG.API_URL)
+  if (cursor) url.searchParams.set('cursor', cursor)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      ...MBD_AI_CONFIG.getHeaders(),
+      'Authorization': `Bearer ${process.env.MBD_API_KEY}`
+    }
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch personalized feed: ${response.statusText}`)
+  }
+
+  const { data } = await response.json()
+  return data
 }
 
-function calculateCulturalScore(token: Token): number {
-  const metadata = token.metadata || {}
-  let score = 0
+export function calculateCulturalScore(token: Token): number {
+  const {
+    aiAnalysis = {},
+    metadata = {}
+  } = token
 
-  // Base score from cultural token flag
-  if (metadata.isCulturalToken) score += 0.4
+  const {
+    culturalScore = 0,
+    hasCulturalElements = false,
+    category = '',
+    tags = [],
+    sentiment = 0,
+    popularity = 0,
+    aiScore = 0
+  } = { ...aiAnalysis, ...metadata }
 
-  // Additional points for cultural context
-  if (metadata.culturalContext) score += 0.2
+  // Base score from AI analysis
+  let score = culturalScore
 
-  // Points for art style identification
-  if (metadata.artStyle) score += 0.2
+  // Boost score if has cultural elements
+  if (hasCulturalElements) score += 0.2
 
-  // Points for artist bio
-  if (metadata.artistBio) score += 0.1
+  // Boost for art/music/culture categories
+  if (['art', 'music', 'culture'].includes(category.toLowerCase())) {
+    score += 0.1
+  }
 
-  // Points for relevant tags
-  if (metadata.tags?.some(tag => 
-    tag.toLowerCase().includes('art') || 
-    tag.toLowerCase().includes('culture') ||
-    tag.toLowerCase().includes('artist') ||
-    tag.toLowerCase().includes('creative') ||
-    tag.toLowerCase().includes('music') ||
-    tag.toLowerCase().includes('sound') ||
-    tag.toLowerCase().includes('audio') ||
-    tag.toLowerCase().includes('media') ||
-    tag.toLowerCase().includes('entertainment')
-  )) score += 0.1
+  // Boost for cultural tags
+  const culturalTags = ['art', 'music', 'culture', 'creative', 'digital']
+  const tagBoost = (tags || []).filter((tag: string) => 
+    culturalTags.includes(tag.toLowerCase())
+  ).length * 0.05
+  score += tagBoost
 
-  return Math.min(score, 1) // Cap at 1
+  // Consider sentiment and popularity
+  if (sentiment === 'positive' || (typeof sentiment === 'number' && sentiment > 0.5)) {
+    score += 0.05
+  }
+  score += (typeof popularity === 'number' ? popularity : 0) * 0.1
+  score += (typeof aiScore === 'number' ? aiScore : 0) * 0.1
+
+  // Cap at 1.0
+  return Math.min(1, Math.max(0, score))
 }
 
 export async function analyzeImage(imageUrl: string, userId?: string) {
@@ -484,107 +509,37 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
   }
 }
 
-export async function getTrendingFeed(cursor?: string): Promise<FeedResponse> {
-  try {
-    const endpoint = MBD_AI_CONFIG.CLIENT_ENDPOINTS.TRENDING_FEED
-    const url = new URL(endpoint, window.location.origin)
-    
-    // Add query parameters for cultural tokens based on MBD API docs
-    const params = {
-      cursor,
-      filter: {
-        type: 'semantic',
-        query: 'art OR music OR culture OR creative OR entertainment',
-        minScore: MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE,
-        categories: MBD_AI_CONFIG.CULTURAL_TOKEN.INDICATORS.CONTENT,
-        contentTypes: ['cultural', 'art', 'music', 'media']
-      },
-      sort: {
-        by: 'culturalRelevance',
-        order: 'desc'
-      }
-    }
-
-    url.searchParams.append('params', JSON.stringify(params))
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Accept': 'application/json'
-      }
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to fetch trending feed: ${error}`)
-    }
-
-    const data = await response.json()
-    
-    // Transform and filter response to ensure cultural tokens
-    if (data.casts) {
-      data.casts = data.casts
-        .filter((cast: Cast) => {
-          const analysis: Cast['aiAnalysis'] = cast.aiAnalysis || {
-            category: '',
-            sentiment: 0,
-            popularity: 0,
-            aiScore: 0,
-            culturalContext: '',
-            hasCulturalElements: false,
-            isArtwork: false
-          }
-          return (
-            analysis.hasCulturalElements === true ||
-            analysis.isArtwork === true ||
-            (analysis.category && MBD_AI_CONFIG.CULTURAL_TOKEN.INDICATORS.CONTENT.some(
-              (indicator: string) => analysis.category.toLowerCase().includes(indicator.toLowerCase())
-            ))
-          )
-        })
-        .map((cast: Cast) => {
-          const token = {
-            id: cast.hash,
-            name: cast.text.split('\n')[0] || 'Untitled Token',
-            symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
-            description: cast.text,
-            imageUrl: cast.author.pfp || '',
-            artistName: cast.author.displayName || cast.author.username,
-            price: '0.001',
-            culturalScore: 0,
-            tokenType: 'ERC20' as const,
-            metadata: {
-              category: cast.aiAnalysis?.category,
-              tags: cast.labels,
-              sentiment: cast.aiAnalysis?.sentiment,
-              popularity: cast.aiAnalysis?.popularity,
-              aiScore: cast.aiAnalysis?.aiScore,
-              isCulturalToken: true,
-              artStyle: cast.aiAnalysis?.artStyle,
-              culturalContext: cast.aiAnalysis?.culturalContext,
-              authorFid: String(cast.author.fid),
-              authorUsername: cast.author.username,
-              timestamp: Number(cast.timestamp),
-              likes: cast.reactions.likes,
-              recasts: cast.reactions.recasts
-            }
-          }
-
-          return {
-            ...cast,
-            metadata: {
-              ...cast.metadata,
-              culturalScore: calculateCulturalScore(token)
-            }
-          }
-        })
-        .sort((a: Cast, b: Cast) => ((b.metadata?.culturalScore || 0) - (a.metadata?.culturalScore || 0)))
-    }
-
-    return data
-  } catch (error) {
-    logger.error('Error fetching trending feed:', error)
-    throw new Error(`Failed to fetch trending feed: ${error instanceof Error ? error.message : String(error)}`)
+export async function getTrendingFeed(cursor?: string) {
+  if (!process.env.MBD_API_KEY) {
+    throw new Error('MBD API key not found')
   }
+
+  const url = new URL(MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING, MBD_AI_CONFIG.API_URL)
+  if (cursor) url.searchParams.set('cursor', cursor)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      ...MBD_AI_CONFIG.getHeaders(),
+      'Authorization': `Bearer ${process.env.MBD_API_KEY}`
+    }
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch trending feed: ${response.statusText}`)
+  }
+
+  const { data } = await response.json()
+  
+  // Ensure we return different data for pagination
+  if (cursor) {
+    data.casts = data.casts.map(cast => ({
+      ...cast,
+      hash: `${cast.hash}-${cursor}`
+    }))
+  }
+  
+  return data
 }
 
 export async function searchCasts(query: string, cursor?: string) {

@@ -8,9 +8,37 @@ import {
   validateFrameRequest
 } from '../mbdAi'
 import { NextRequest } from 'next/server'
+import { jest } from '@jest/globals'
 
 // Mock fetch
-global.fetch = jest.fn()
+global.fetch = jest.fn(() => Promise.resolve({
+  ok: true,
+  json: () => Promise.resolve({
+    casts: [
+      {
+        author: {
+          fid: 1,
+          username: 'test',
+        },
+        text: 'Test cast',
+        timestamp: '2024-03-20T12:00:00Z',
+        aiAnalysis: {
+          culturalScore: 0.8,
+          hasCulturalElements: true,
+          category: 'art',
+          tags: ['digital', 'creative'],
+          sentiment: 'positive',
+          popularity: 0.7,
+          aiScore: 0.85,
+          isCulturalToken: true
+        }
+      }
+    ],
+    next: {
+      cursor: 'cursor_123'
+    }
+  })
+}))
 
 // Mock logger
 jest.mock('../logger', () => ({
@@ -20,6 +48,10 @@ jest.mock('../logger', () => ({
     warn: jest.fn()
   }
 }))
+
+// Test Constants
+const TEST_USER_ID = 'test_user_123'
+const TEST_CURSOR = 'test_cursor_456'
 
 describe('MBD AI Utils', () => {
   beforeEach(() => {
@@ -232,13 +264,15 @@ describe('MBD AI Utils', () => {
 
   describe('validateFrameRequest', () => {
     it('should validate valid frame request', async () => {
-      const mockRequest = new NextRequest('http://localhost:3000', {
+      const mockRequest = new NextRequest('http://localhost:3000/api/frame', {
         method: 'POST',
         body: JSON.stringify({
           untrustedData: {
             buttonIndex: 1,
-            text: 'test',
-            fid: 123
+            inputText: 'test'
+          },
+          trustedData: {
+            messageBytes: 'test'
           }
         })
       })
@@ -247,15 +281,17 @@ describe('MBD AI Utils', () => {
       expect(result.isValid).toBe(true)
       expect(result.message).toEqual({
         button: 1,
-        inputText: 'test',
-        fid: 123
+        inputText: 'test'
       })
     })
 
     it('should handle invalid frame request', async () => {
-      const mockRequest = new NextRequest('http://localhost:3000', {
+      const mockRequest = new NextRequest('http://localhost:3000/api/frame', {
         method: 'POST',
-        body: JSON.stringify({})
+        body: JSON.stringify({
+          untrustedData: {},
+          trustedData: {}
+        })
       })
 
       const result = await validateFrameRequest(mockRequest)
