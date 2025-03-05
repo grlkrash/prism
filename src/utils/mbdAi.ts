@@ -404,87 +404,75 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
 
 export async function getPersonalizedFeed(fid: string | number): Promise<FeedResponse> {
   try {
-    if (!MBD_API_KEY) {
-      // Use mock data in development if no API key
-      if (process.env.NODE_ENV === 'development') {
-        return {
-          casts: tokenDatabase.map(token => ({
-            hash: token.id.toString(),
-            author: {
-              fid: 1,
-              username: token.artistName,
-              displayName: token.artistName,
-              pfp: token.imageUrl
-            },
-            text: token.description,
-            timestamp: Date.now().toString(),
-            reactions: {
-              likes: Math.floor(Math.random() * 100),
-              recasts: Math.floor(Math.random() * 50)
-            }
-          }))
-        }
+    // Use client-side endpoint if in browser
+    if (typeof window !== 'undefined') {
+      const url = new URL(MBD_AI_CONFIG.CLIENT_ENDPOINTS.FOR_YOU_FEED, window.location.origin)
+      url.searchParams.append('fid', fid.toString())
+
+      const response = await fetch(url.toString())
+      if (!response.ok) {
+        throw new Error(`Failed to fetch personalized feed: ${response.statusText}`)
       }
-      throw new MbdApiError('Missing API key')
+
+      const data = await response.json()
+      return data
     }
 
-    const url = new URL(`${MBD_API_URL}${MBD_AI_CONFIG.ENDPOINTS.FEED_FOR_YOU}`)
+    // Server-side call with API key
+    if (!MBD_API_KEY) {
+      throw new Error('Missing API key')
+    }
+
+    const url = new URL(`${MBD_API_URL}${MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_FOR_YOU}`)
     url.searchParams.append('fid', fid.toString())
 
     const response = await fetch(url.toString(), {
       method: 'GET',
-      headers: {
-        ...MBD_AI_CONFIG.getHeaders(),
-        'Origin': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-        'Access-Control-Request-Method': 'GET',
-        'Access-Control-Request-Headers': 'Authorization, Content-Type'
-      },
-      credentials: 'include',
-      next: { revalidate: 60 } // Cache for 1 minute
+      headers: MBD_AI_CONFIG.getHeaders(),
+      next: { revalidate: 60 }
     })
 
-    if (response.status === 403) {
-      logger.error('Access denied to Warpcast API', { status: response.status })
-      throw new MbdApiError('Access denied to Warpcast API', 403)
-    }
-
     if (!response.ok) {
-      throw new MbdApiError('Failed to fetch personalized feed', response.status)
+      throw new Error(`Failed to fetch personalized feed: ${response.statusText}`)
     }
 
     const data = await response.json()
-    
-    // Transform Warpcast response to our FeedResponse format
-    const transformedData: FeedResponse = {
-      casts: data.result.casts.map((cast: any) => ({
-        hash: cast.hash,
-        threadHash: cast.threadHash,
-        parentHash: cast.parentHash,
-        author: {
-          fid: cast.author.fid,
-          username: cast.author.username,
-          displayName: cast.author.displayName,
-          pfp: cast.author.pfp
-        },
-        text: cast.text,
-        timestamp: cast.timestamp,
-        reactions: {
-          likes: cast.reactions?.likes || 0,
-          recasts: cast.reactions?.recasts || 0
-        },
-        replies: cast.replies,
-        viewerContext: cast.viewerContext,
-        labels: cast.labels,
-        aiAnalysis: cast.aiAnalysis
-      })),
-      next: data.next ? { cursor: data.next.cursor } : undefined
-    }
-
-    return transformedData
+    return transformWarpcastResponse(data)
   } catch (error) {
-    logger.error('Error fetching personalized feed:', error)
-    // Return empty feed instead of throwing
+    console.error('Error fetching personalized feed:', error)
     return { casts: [] }
+  }
+}
+
+// Helper function to transform Warpcast response
+function transformWarpcastResponse(data: any): FeedResponse {
+  if (!data?.result?.casts) {
+    return { casts: [] }
+  }
+
+  return {
+    casts: data.result.casts.map((cast: any) => ({
+      hash: cast.hash,
+      threadHash: cast.threadHash,
+      parentHash: cast.parentHash,
+      author: {
+        fid: cast.author.fid,
+        username: cast.author.username,
+        displayName: cast.author.displayName,
+        pfp: cast.author.pfp
+      },
+      text: cast.text,
+      timestamp: cast.timestamp,
+      reactions: {
+        likes: cast.reactions?.likes || 0,
+        recasts: cast.reactions?.recasts || 0
+      },
+      replies: cast.replies,
+      viewerContext: cast.viewerContext,
+      labels: cast.labels,
+      aiAnalysis: cast.aiAnalysis
+    })),
+    next: data.next ? { cursor: data.next.cursor } : undefined
   }
 }
 
@@ -534,30 +522,42 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
 
 export async function getTrendingFeed(cursor?: string): Promise<FeedResponse> {
   try {
-    const data = await makeMbdRequest<FeedResponse>('/v2/discover-actions', {
-      cursor,
-      limit: 20,
-      filter: {
-        type: 'cultural',
-      },
-    })
+    // Use client-side endpoint if in browser
+    if (typeof window !== 'undefined') {
+      const url = new URL(MBD_AI_CONFIG.CLIENT_ENDPOINTS.TRENDING_FEED, window.location.origin)
+      if (cursor) {
+        url.searchParams.append('cursor', cursor)
+      }
+
+      const response = await fetch(url.toString())
+      if (!response.ok) {
+        throw new Error(`Failed to fetch trending feed: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      return data
+    }
+
+    // Server-side call
+    const data = await makeMbdRequest<FeedResponse>(
+      MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING,
+      { cursor, limit: 20, filter: { type: 'cultural' } }
+    )
     
-    // Ensure we have valid data structure
     if (!data || !Array.isArray(data.casts)) {
-      throw new MbdApiError('Invalid feed response')
+      throw new Error('Invalid feed response')
     }
     
     return data
   } catch (error) {
     console.error('[ERROR] Error fetching trending feed:', error)
-    // Return empty feed instead of throwing
     return { casts: [] }
   }
 }
 
 export async function searchCasts(query: string, cursor?: string) {
   try {
-    return await makeMbdRequest<FeedResponse>(MBD_AI_CONFIG.ENDPOINTS.SEARCH_SEMANTIC, {
+    return await makeMbdRequest<FeedResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.SEARCH_SEMANTIC, {
       query,
       cursor
     })
@@ -572,7 +572,7 @@ export async function searchCasts(query: string, cursor?: string) {
 
 export async function getLabelsForCasts(hashes: string[]) {
   try {
-    return await makeMbdRequest<LabelsResponse>(MBD_AI_CONFIG.ENDPOINTS.LABELS_FOR_ITEMS, {
+    return await makeMbdRequest<LabelsResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.LABELS_FOR_ITEMS, {
       hashes
     })
   } catch (error) {
@@ -586,7 +586,7 @@ export async function getLabelsForCasts(hashes: string[]) {
 
 export async function getSimilarUsers(userId: string, cursor?: string) {
   try {
-    return await makeMbdRequest<UsersResponse>(MBD_AI_CONFIG.ENDPOINTS.USERS_SIMILAR, {
+    return await makeMbdRequest<UsersResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.USERS_SIMILAR, {
       userId,
       cursor
     }, userId)

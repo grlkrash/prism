@@ -2,7 +2,6 @@ export const MBD_AI_CONFIG = {
   // API Configuration
   API_URL: process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
   WARPCAST_API_URL: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com',
-  API_KEY: process.env.MBD_API_KEY,
   
   // Headers Configuration
   getHeaders: () => {
@@ -11,23 +10,28 @@ export const MBD_AI_CONFIG = {
       'Accept': 'application/json'
     }
     
-    const apiKey = process.env.MBD_API_KEY
-    if (!apiKey) {
-      throw new Error('MBD API key not found. Please set MBD_API_KEY in your environment variables.')
+    // Check if we're on the server side
+    if (typeof window === 'undefined') {
+      const apiKey = process.env.MBD_API_KEY
+      if (!apiKey) {
+        throw new Error('MBD API key not found. Please set MBD_API_KEY in your environment variables.')
+      }
+      headers['Authorization'] = `Bearer ${apiKey}`
     }
     
-    headers['Authorization'] = `Bearer ${apiKey}`
     return headers
   },
 
-  // Rate Limiting
-  RATE_LIMIT: {
-    MAX_REQUESTS: 100,
-    WINDOW_MS: 60 * 1000, // 1 minute
+  // Client-side API endpoints
+  CLIENT_ENDPOINTS: {
+    TRENDING_FEED: '/api/mbd?endpoint=/v2/discover-actions',
+    FOR_YOU_FEED: '/api/mbd?endpoint=/v2/feed',
+    SEARCH: '/api/mbd?endpoint=/v2/search',
+    LABELS: '/api/mbd?endpoint=/v2/labels'
   },
 
-  // Endpoints
-  ENDPOINTS: {
+  // Server-side API endpoints
+  SERVER_ENDPOINTS: {
     FEED_FOR_YOU: '/v2/feed',
     FEED_TRENDING: '/v2/discover-actions',
     SEARCH_SEMANTIC: '/v2/search',
@@ -36,6 +40,12 @@ export const MBD_AI_CONFIG = {
     CHANNEL_FOLLOWS: '/fc/channel-follows',
     BLOCKED_USERS: '/fc/blocked-users',
     ACCOUNT_VERIFICATIONS: '/fc/account-verifications'
+  },
+
+  // Rate Limiting
+  RATE_LIMIT: {
+    MAX_REQUESTS: 100,
+    WINDOW_MS: 60 * 1000, // 1 minute
   },
 
   // Cultural Token Detection
@@ -82,8 +92,12 @@ export const MBD_AI_CONFIG = {
   }
 }
 
-// Validate configuration
+// Validate configuration only on server side
 const validateConfig = () => {
+  if (typeof window !== 'undefined') {
+    return true // Skip validation on client side
+  }
+  
   const apiKey = process.env.MBD_API_KEY
   if (!apiKey) {
     console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
@@ -103,15 +117,15 @@ if (process.env.NODE_ENV === 'development') {
   console.log('- Available MBD keys:', Object.keys(process.env).filter(key => key.includes('MBD')))
   
   console.log('\n2. Configuration Check:')
-  console.log('- API_KEY exists:', !!MBD_AI_CONFIG.API_KEY)
-  console.log('- API_KEY format:', typeof MBD_AI_CONFIG.API_KEY === 'string' && MBD_AI_CONFIG.API_KEY.startsWith('mbd_'))
+  console.log('- API Key exists:', !!process.env.MBD_API_KEY)
+  console.log('- API Key format:', typeof process.env.MBD_API_KEY === 'string' && process.env.MBD_API_KEY.startsWith('mbd-'))
   console.log('- API_URL:', MBD_AI_CONFIG.API_URL)
 
-  if (!MBD_AI_CONFIG.API_KEY) {
+  if (!process.env.MBD_API_KEY) {
     console.warn('\n❌ Configuration Error:')
     console.warn('- MBD AI API key not found')
     console.warn('- Set MBD_API_KEY in .env.local')
-    console.warn('- Format: mbd_xxxxxxxxxxxx')
+    console.warn('- Format: mbd-xxxxxxxxxxxx')
   }
 }
 
@@ -129,7 +143,7 @@ export async function checkApiStatus() {
 }
 
 // Add test mode flag
-export const isTestMode = process.env.NODE_ENV === 'test' || MBD_AI_CONFIG.API_KEY === 'test-key-for-development'
+export const isTestMode = process.env.NODE_ENV === 'test' || process.env.MBD_API_KEY === 'test-key-for-development'
 
 // Helper function to get mock data for test mode
 export function getMockData() {
