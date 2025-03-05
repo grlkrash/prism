@@ -218,10 +218,12 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
 interface TokenRecommendation {
   id: string
   name: string
+  symbol: string
   description: string
   imageUrl: string
   price: string
   culturalScore: number
+  tokenType: 'ERC20'
 }
 
 function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
@@ -240,10 +242,12 @@ function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
         return parsed.recommendations.map((rec: any) => ({
           id: crypto.randomUUID(),
           name: rec.name || 'Unknown Token',
+          symbol: rec.symbol || 'UNKNOWN',
           description: rec.description || '',
           imageUrl: rec.imageUrl || '',
           price: rec.price || '0',
-          culturalScore: rec.culturalScore || Math.floor(Math.random() * 100)
+          culturalScore: rec.culturalScore || Math.floor(Math.random() * 100),
+          tokenType: 'ERC20'
         }))
       }
     } catch (e) {
@@ -258,17 +262,19 @@ function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
     const recommendations = recommendationsText.split('\n')
       .filter(line => line.trim())
       .map(line => {
-        // Match numbered items like "1. TokenName: Description"
-        const match = line.match(/^\d+\.\s*([^:]+):\s*(.+)/)
+        // Match numbered items like "1. TokenName ($SYMBOL): Description"
+        const match = line.match(/^\d+\.\s*([^(]+)\s*\((\$[A-Z]+)\):\s*(.+)/)
         if (!match) return null
         
         return {
           id: crypto.randomUUID(),
           name: match[1].trim(),
-          description: match[2].trim(),
+          symbol: match[2].replace('$', ''),
+          description: match[3].trim(),
           imageUrl: '', // Will be populated by MBD AI later
           price: '0',
-          culturalScore: Math.floor(Math.random() * 100)
+          culturalScore: Math.floor(Math.random() * 100),
+          tokenType: 'ERC20' as const
         }
       })
       .filter((rec): rec is TokenRecommendation => rec !== null)

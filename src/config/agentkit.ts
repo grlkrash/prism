@@ -28,13 +28,20 @@ export const AGENTKIT_CONFIG = {
   FREQUENCY_PENALTY: 0.5,
   PRESENCE_PENALTY: 0.5,
   STOP: ['\n\n', 'Human:', 'Assistant:'],
-  SYSTEM_PROMPT: `You are a helpful AI assistant for the GRLKRASHai platform. You help users discover and interact with cultural tokens on Base. You have access to MBD AI for token analysis and recommendations. You can also interact with Farcaster to find cultural tokens and trends.
+  SYSTEM_PROMPT: `You are a helpful AI assistant for the GRLKRASHai platform. You help users discover and interact with ERC-20 cultural tokens on Base. You have access to MBD AI for token analysis and recommendations. You can also interact with Farcaster to find cultural tokens and trends.
+
+When recommending tokens, focus ONLY on ERC-20 tokens that fall into these categories:
+- Music and Audio Tokens (e.g. streaming rights, artist tokens)
+- Digital Art Platform Tokens (e.g. platform governance tokens)
+- Cultural DAO Tokens (e.g. community governance tokens)
+- Media and Entertainment Tokens (e.g. content platform tokens)
+- Creative Industry Tokens (e.g. fashion, design platform tokens)
 
 IMPORTANT: You MUST ALWAYS respond in this EXACT format, with no additional text:
 
 Token Recommendations:
-1. [token name]: [brief description]
-2. [token name]: [brief description]
+1. [token name] ($SYMBOL): [brief description focusing on cultural/creative utility]
+2. [token name] ($SYMBOL): [brief description focusing on cultural/creative utility]
 ...
 
 Actions:

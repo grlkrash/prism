@@ -5,6 +5,7 @@ import { MBD_AI_CONFIG } from '@/config/mbdAi'
 export interface Token {
   id: number
   name: string
+  symbol: string
   description: string
   imageUrl: string
   artistName: string
@@ -30,67 +31,97 @@ export interface Token {
 export const tokenDatabase: Token[] = [
   {
     id: 1,
-    name: "Digital Dreams #1",
-    description: "A mesmerizing piece of digital art",
+    name: "Digital Renaissance DAO",
+    symbol: "RENAI",
+    description: "Governance token for the Digital Renaissance platform, empowering digital artists and curators",
     imageUrl: "https://picsum.photos/800/600",
-    artistName: "AI Artist",
+    artistName: "Digital Renaissance Foundation",
     price: "0.1 ETH",
     social: {
       twitter: 'twitter.com/digitalrenaissance',
       discord: 'discord.gg/digitalrenaissance',
       website: 'digitalrenaissance.art'
+    },
+    metadata: {
+      category: 'Cultural DAO',
+      tags: ['art', 'culture', 'governance', 'curation'],
+      isCulturalToken: true
     }
   },
   {
     id: 2,
-    name: "Sound Wave #1",
-    description: "A symphony of digital sound",
+    name: "SoundWave Protocol",
+    symbol: "WAVE",
+    description: "Music streaming and rights management token for the decentralized audio ecosystem",
     imageUrl: "https://picsum.photos/800/601",
-    artistName: "Sound Artist",
+    artistName: "SoundWave Labs",
     price: "0.1 ETH",
     social: {
       twitter: 'twitter.com/soundwave',
       discord: 'discord.gg/soundwave',
       website: 'soundwavetoken.xyz'
+    },
+    metadata: {
+      category: 'Music and Audio',
+      tags: ['music', 'streaming', 'rights', 'audio'],
+      isCulturalToken: true
     }
   },
   {
     id: 3,
-    name: "Urban Canvas #1",
-    description: "Street art meets digital world",
+    name: "Urban Culture Token",
+    symbol: "URBAN",
+    description: "Governance token for the Urban Canvas platform, connecting street artists with digital opportunities",
     imageUrl: "https://picsum.photos/800/602",
-    artistName: "Urban Artist",
+    artistName: "Urban Canvas Foundation",
     price: "0.1 ETH",
     social: {
       twitter: 'twitter.com/urbancanvas',
       discord: 'discord.gg/urbancanvas',
       website: 'urbancanvas.art'
+    },
+    metadata: {
+      category: 'Cultural DAO',
+      tags: ['street art', 'culture', 'urban', 'community'],
+      isCulturalToken: true
     }
   },
   {
     id: 4,
-    name: "Digital Symphony #1",
-    description: "An AI-generated musical masterpiece",
+    name: "Digital Symphony",
+    symbol: "SYMPH",
+    description: "Platform token for AI-generated music licensing and distribution",
     imageUrl: "https://picsum.photos/800/603",
-    artistName: "Digital Composer",
+    artistName: "Digital Symphony Labs",
     price: "0.15 ETH",
     social: {
       twitter: 'twitter.com/digitalsymphony',
       discord: 'discord.gg/digitalsymphony',
       website: 'digitalsymphony.xyz'
+    },
+    metadata: {
+      category: 'Music and Audio',
+      tags: ['music', 'AI', 'licensing', 'distribution'],
+      isCulturalToken: true
     }
   },
   {
     id: 5,
-    name: "Media Matrix #1",
-    description: "Interactive digital media experience",
+    name: "Media Matrix Protocol",
+    symbol: "MATRIX",
+    description: "Decentralized media platform governance token for content creators",
     imageUrl: "https://picsum.photos/800/604",
-    artistName: "Media Artist",
+    artistName: "Media Matrix Foundation",
     price: "0.2 ETH",
     social: {
       twitter: 'twitter.com/mediamatrix',
       discord: 'discord.gg/mediamatrix',
       website: 'mediamatrix.art'
+    },
+    metadata: {
+      category: 'Media and Entertainment',
+      tags: ['media', 'content', 'entertainment', 'platform'],
+      isCulturalToken: true
     }
   }
 ]
