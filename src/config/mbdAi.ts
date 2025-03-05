@@ -13,8 +13,7 @@ export const MBD_AI_CONFIG = {
     
     const apiKey = process.env.MBD_API_KEY
     if (!apiKey) {
-      console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
-      throw new Error('MBD API key not found')
+      throw new Error('MBD API key not found. Please set MBD_API_KEY in your environment variables.')
     }
     
     headers['Authorization'] = `Bearer ${apiKey}`
@@ -83,11 +82,18 @@ export const MBD_AI_CONFIG = {
   }
 }
 
-// Validate configuration immediately
-const apiKey = process.env.MBD_API_KEY || process.env.NEXT_PUBLIC_MBD_API_KEY
-if (!apiKey) {
-  console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
+// Validate configuration
+const validateConfig = () => {
+  const apiKey = process.env.MBD_API_KEY
+  if (!apiKey) {
+    console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
+    return false
+  }
+  return true
 }
+
+// Export validation function
+export const isConfigValid = validateConfig()
 
 // Validate configuration in development only
 if (process.env.NODE_ENV === 'development') {

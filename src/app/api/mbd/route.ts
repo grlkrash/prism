@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/utils/logger'
-import { MBD_AI_CONFIG } from '@/config/mbdAi'
+import { MBD_AI_CONFIG, isConfigValid } from '@/config/mbdAi'
 
 export async function GET(req: NextRequest) {
   try {
+    if (!isConfigValid) {
+      return new NextResponse(
+        JSON.stringify({ error: 'MBD API configuration is invalid. Please check your environment variables.' }),
+        { 
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+    }
+
     const { searchParams } = new URL(req.url)
     const endpoint = searchParams.get('endpoint')
     
@@ -19,12 +31,12 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, {
-      headers: MBD_AI_CONFIG.getHeaders()
-    })
+    const headers = MBD_AI_CONFIG.getHeaders()
+    const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, { headers })
 
     if (!response.ok) {
-      throw new Error(`MBD API error: ${response.statusText}`)
+      const errorData = await response.json().catch(() => ({ message: response.statusText }))
+      throw new Error(`MBD API error: ${errorData.message || response.statusText}`)
     }
 
     const data = await response.json()
@@ -36,7 +48,9 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     logger.error('Error in MBD route:', error)
     return new NextResponse(
-      JSON.stringify({ error: 'Failed to fetch from MBD API' }),
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Failed to fetch from MBD API'
+      }),
       { 
         status: 500,
         headers: {
@@ -49,6 +63,18 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isConfigValid) {
+      return new NextResponse(
+        JSON.stringify({ error: 'MBD API configuration is invalid. Please check your environment variables.' }),
+        { 
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+    }
+
     const { searchParams } = new URL(req.url)
     const endpoint = searchParams.get('endpoint')
     
@@ -65,15 +91,17 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
+    const headers = MBD_AI_CONFIG.getHeaders()
     
     const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, {
       method: 'POST',
-      headers: MBD_AI_CONFIG.getHeaders(),
+      headers,
       body: JSON.stringify(body)
     })
 
     if (!response.ok) {
-      throw new Error(`MBD API error: ${response.statusText}`)
+      const errorData = await response.json().catch(() => ({ message: response.statusText }))
+      throw new Error(`MBD API error: ${errorData.message || response.statusText}`)
     }
 
     const data = await response.json()
@@ -85,7 +113,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     logger.error('Error in MBD route:', error)
     return new NextResponse(
-      JSON.stringify({ error: 'Failed to fetch from MBD API' }),
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Failed to fetch from MBD API'
+      }),
       { 
         status: 500,
         headers: {
