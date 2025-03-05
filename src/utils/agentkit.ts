@@ -93,7 +93,7 @@ interface TokenRecommendation {
   tokenType: 'ERC20'
 }
 
-function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
+export function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
   try {
     if (!content) return []
     
@@ -152,7 +152,7 @@ function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
   }
 }
 
-function extractActions(content: unknown): { type: string, tokenId: string, label: string }[] {
+export function extractActions(content: unknown): { type: string, tokenId: string, label: string }[] {
   try {
     if (!content) return []
     

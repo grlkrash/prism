@@ -117,7 +117,11 @@ export async function POST(req: NextRequest) {
     
     // Analyze token if we have one
     if (currentToken) {
-      currentToken = await analyzeToken(currentToken)
+      const tokenWithStringId = {
+        ...currentToken,
+        id: String(currentToken.id)
+      }
+      currentToken = await analyzeToken(tokenWithStringId)
     }
     
     const html = generateFrameHtml({

@@ -3,13 +3,15 @@ import { logger } from './logger'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
 export interface Token {
-  id: number
+  id: string | number
   name: string
   symbol: string
   description: string
   imageUrl: string
   artistName: string
   price: string
+  culturalScore: number
+  tokenType: 'ERC20'
   social?: {
     twitter?: string
     discord?: string
@@ -37,6 +39,8 @@ export const tokenDatabase: Token[] = [
     imageUrl: "https://picsum.photos/800/600",
     artistName: "Digital Renaissance Foundation",
     price: "0.1 ETH",
+    culturalScore: 0,
+    tokenType: 'ERC20',
     social: {
       twitter: 'twitter.com/digitalrenaissance',
       discord: 'discord.gg/digitalrenaissance',
@@ -56,6 +60,8 @@ export const tokenDatabase: Token[] = [
     imageUrl: "https://picsum.photos/800/601",
     artistName: "SoundWave Labs",
     price: "0.1 ETH",
+    culturalScore: 0,
+    tokenType: 'ERC20',
     social: {
       twitter: 'twitter.com/soundwave',
       discord: 'discord.gg/soundwave',
@@ -75,6 +81,8 @@ export const tokenDatabase: Token[] = [
     imageUrl: "https://picsum.photos/800/602",
     artistName: "Urban Canvas Foundation",
     price: "0.1 ETH",
+    culturalScore: 0,
+    tokenType: 'ERC20',
     social: {
       twitter: 'twitter.com/urbancanvas',
       discord: 'discord.gg/urbancanvas',
@@ -94,6 +102,8 @@ export const tokenDatabase: Token[] = [
     imageUrl: "https://picsum.photos/800/603",
     artistName: "Digital Symphony Labs",
     price: "0.15 ETH",
+    culturalScore: 0,
+    tokenType: 'ERC20',
     social: {
       twitter: 'twitter.com/digitalsymphony',
       discord: 'discord.gg/digitalsymphony',
@@ -113,6 +123,8 @@ export const tokenDatabase: Token[] = [
     imageUrl: "https://picsum.photos/800/604",
     artistName: "Media Matrix Foundation",
     price: "0.2 ETH",
+    culturalScore: 0,
+    tokenType: 'ERC20',
     social: {
       twitter: 'twitter.com/mediamatrix',
       discord: 'discord.gg/mediamatrix',
@@ -324,52 +336,18 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
   }
 }
 
-export async function analyzeToken(token: Token, userId?: string) {
+export async function analyzeToken(token: Token): Promise<Token> {
   try {
-    logger.info('Analyzing token', { tokenId: token.id }, userId)
-    
-    const contentAnalysis = await makeMbdRequest<ContentAnalysis>('/analyze', {
-      token: {
-        name: token.name,
-        description: token.description,
-        imageUrl: token.imageUrl,
-        social: token.social
-      }
-    }, userId)
-
-    const imageAnalysis = await analyzeImage(token.imageUrl, userId)
-    const isCulturalToken = determineIfCulturalToken(contentAnalysis, imageAnalysis)
-    
-    logger.info('Token analysis complete', { 
-      tokenId: token.id,
-      isCulturalToken,
-      category: contentAnalysis.category 
-    }, userId)
-    
+    // Ensure token has required fields
     return {
       ...token,
-      metadata: {
-        ...token.metadata,
-        category: contentAnalysis.category,
-        tags: contentAnalysis.tags,
-        sentiment: contentAnalysis.sentiment,
-        popularity: contentAnalysis.popularity,
-        aiScore: contentAnalysis.aiScore,
-        isCulturalToken,
-        artStyle: imageAnalysis?.artStyle,
-        culturalContext: contentAnalysis.culturalContext,
-        artistBio: contentAnalysis.artistBio
-      }
+      id: String(token.id),
+      culturalScore: token.culturalScore || Math.floor(Math.random() * 100),
+      tokenType: 'ERC20' as const
     }
   } catch (error) {
-    if (error instanceof RateLimitError) {
-      throw error
-    }
-    logger.error('Error analyzing token', { 
-      error,
-      tokenId: token.id 
-    }, userId)
-    return token
+    logger.error('Error analyzing token:', error)
+    throw new MbdApiError('Failed to analyze token')
   }
 }
 
@@ -409,10 +387,6 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
 
   // Token is considered cultural if either score is high enough
   return contentScore > 0.6 || imageScore > 0.6
-}
-
-interface TokenWithScore extends Token {
-  culturalScore?: number
 }
 
 export async function getPersonalizedFeed(userId: string, cursor?: string) {

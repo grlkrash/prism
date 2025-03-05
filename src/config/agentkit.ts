@@ -1,16 +1,5 @@
 import { z } from 'zod'
-import {
-  AgentKit,
-  CdpWalletProvider,
-  wethActionProvider,
-  walletActionProvider,
-  erc20ActionProvider,
-  cdpApiActionProvider,
-  cdpWalletActionProvider,
-  pythActionProvider,
-} from "@coinbase/agentkit"
 import { ChatOpenAI } from "@langchain/openai"
-import { SystemMessage, HumanMessage } from "@langchain/core/messages"
 import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { ChatPromptTemplate } from "@langchain/core/prompts"
