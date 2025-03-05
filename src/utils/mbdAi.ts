@@ -499,18 +499,30 @@ export async function getTrendingFeed(cursor?: string) {
   console.log('[MBD AI] Making request to local API route')
 
   try {
-    const params = new URLSearchParams({
-      endpoint: MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING
-    })
-    if (cursor) params.set('cursor', cursor)
+    // Ensure the endpoint is properly formatted
+    const endpoint = MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING
+    console.log('[MBD AI] Using endpoint:', endpoint)
 
-    const response = await fetch(`${API_URL}?${params.toString()}`)
+    const params = new URLSearchParams({
+      endpoint: endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+    })
+
+    if (cursor) {
+      params.set('cursor', cursor)
+      console.log('[MBD AI] Added cursor:', cursor)
+    }
+
+    const requestUrl = `${API_URL}?${params.toString()}`
+    console.log('[MBD AI] Making request to:', requestUrl)
+
+    const response = await fetch(requestUrl)
 
     if (!response.ok) {
       const errorText = await response.text()
       console.error('[MBD AI] Error response:', {
         status: response.status,
         statusText: response.statusText,
+        url: requestUrl,
         body: errorText
       })
       throw new Error(`Failed to fetch trending feed: ${response.status} ${response.statusText} - ${errorText}`)
@@ -522,6 +534,11 @@ export async function getTrendingFeed(cursor?: string) {
       console.error('[MBD AI] Invalid response format:', result)
       throw new Error('Invalid API response format')
     }
+
+    console.log('[MBD AI] Successfully fetched data:', {
+      hasData: !!result.data,
+      hasNextCursor: !!result.data.next
+    })
 
     const data = result.data
     

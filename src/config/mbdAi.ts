@@ -27,7 +27,7 @@ export const MBD_AI_CONFIG = {
     return headers
   },
 
-  // Client-side API endpoints
+  // Client-side API endpoints (through proxy)
   CLIENT_ENDPOINTS: {
     TRENDING_FEED: '/api/mbd?endpoint=/v2/discover-actions',
     FOR_YOU_FEED: '/api/mbd?endpoint=/v2/feed',
@@ -96,6 +96,13 @@ export const MBD_AI_CONFIG = {
     INVALID_RESPONSE: 'Invalid response from MBD AI API'
   },
 
+  // Add validation function for endpoints
+  validateEndpoint: (endpoint: string): string => {
+    if (!endpoint) throw new Error('Endpoint is required')
+    return endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+  },
+
+  // Enhanced logging function
   logConfig: () => {
     console.log('=== MBD AI Configuration Debug ===')
     console.log('1. Environment Check:')
@@ -107,6 +114,10 @@ export const MBD_AI_CONFIG = {
     console.log('- API Key exists:', !!process.env.MBD_API_KEY)
     console.log('- API Key format:', typeof process.env.MBD_API_KEY === 'string' && process.env.MBD_API_KEY.startsWith('mbd-'))
     console.log('- API_URL:', MBD_AI_CONFIG.API_URL)
+    
+    console.log('\n3. Endpoint Check:')
+    console.log('- FEED_TRENDING:', MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING)
+    console.log('- Base URL + Endpoint:', new URL(MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING, MBD_AI_CONFIG.API_URL).toString())
   }
 }
 
