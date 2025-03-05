@@ -136,8 +136,8 @@ export async function POST(req: NextRequest) {
 
     return new Response(generateFrameHtml({
       postUrl: req.url,
-      recommendations: response.recommendations || [],
-      token: response.token
+      recommendations: response.metadata?.tokenRecommendations || [],
+      token: response.metadata?.tokenRecommendations?.[0]
     }), {
       headers: { 'Content-Type': 'text/html' }
     })

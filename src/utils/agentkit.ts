@@ -154,8 +154,12 @@ export async function sendMessage({ message, userId, context = {} }: SendMessage
     const validatedRequest = agentRequestSchema.parse(request)
 
     // Get agent response
-    const agent = getAgent()
-    const response = await agent.invoke([new HumanMessage(validatedRequest.message)])
+    const agent = await getAgent()
+    const response = await agent.invoke({
+      message: validatedRequest.message,
+      userId: validatedRequest.userId,
+      context: validatedRequest.context
+    })
     
     // Parse response
     const content = response.content as string
