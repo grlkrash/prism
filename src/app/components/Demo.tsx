@@ -162,16 +162,17 @@ export default function Demo() {
   // Load initial data using agent
   const loadInitialData = async (fid?: number) => {
     setIsLoading(true)
-    setError(null) // Reset error state
+    setError(null)
+    let hasData = false
+
     try {
-      // Try to get recommendations first using the AI agent
-      let hasData = false
-      
+      // 1. Try AI Agent + LangChain + OpenAI first
+      console.log('[Demo] Starting AI-powered token discovery')
       if (fid) {
         try {
-          console.log('[Demo] Fetching recommendations for FID:', fid)
-          const response = await sendMessage({
-            message: 'Please recommend some trending cultural tokens based on Farcaster activity and cultural relevance',
+          console.log('[Demo] Using AI agent for personalized recommendations')
+          const agentResponse = await sendMessage({
+            message: 'Please analyze and recommend cultural tokens, focusing on art, music, and creative content. Use cultural scoring and sentiment analysis.',
             userId: fid.toString(),
             context: {
               userPreferences: {
@@ -184,104 +185,147 @@ export default function Demo() {
             }
           })
 
-          if (response.metadata?.tokenRecommendations) {
-            setTokens(response.metadata.tokenRecommendations)
+          if (agentResponse.metadata?.tokenRecommendations?.length > 0) {
+            console.log('[Demo] AI agent found recommendations:', agentResponse.metadata.tokenRecommendations.length)
+            setTokens(agentResponse.metadata.tokenRecommendations)
             hasData = true
-            console.log('[Demo] Got recommendations:', response.metadata.tokenRecommendations)
+          } else {
+            console.log('[Demo] AI agent returned no recommendations, trying MBD AI filtering')
           }
-        } catch (e) {
-          console.error('[Demo] Failed to get recommendations:', e)
-          // Don't throw here, let it fall back to trending feed
+        } catch (agentError) {
+          console.error('[Demo] AI agent error:', agentError)
+          // Don't throw, try MBD AI filtering next
         }
       }
 
-      // Fallback to trending feed if no recommendations
+      // 2. Try MBD AI with cultural filtering if agent recommendations failed
       if (!hasData) {
-        console.log('[Demo] Fetching trending feed')
         try {
-          const trendingFeed = await getTrendingFeed()
-          console.log('[Demo] Got trending feed:', trendingFeed)
-          
-          if (!trendingFeed?.casts) {
-            throw new Error('Invalid trending feed response')
+          console.log('[Demo] Using MBD AI for cultural token filtering')
+          const response = await fetch('/api/mbd?endpoint=/v2/discover-actions', {
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            }
+          })
+
+          if (!response.ok) {
+            throw new Error(`MBD AI request failed: ${response.status} ${response.statusText}`)
           }
 
-          const processedTokens = await Promise.all(
-            trendingFeed.casts.map(async (cast: MbdCast) => {
-              try {
-                // Extract token info
-                const token: TokenItem = {
-                  id: cast.hash,
-                  name: cast.text.split('\n')[0] || 'Untitled Token',
-                  symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
-                  description: cast.text,
-                  price: 0.001,
-                  image: cast.author.pfp,
-                  category: cast.aiAnalysis?.category || 'unknown',
-                  social: {
-                    website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
-                  },
-                  metadata: {
-                    authorFid: String(cast.author.fid),
-                    authorUsername: cast.author.username,
-                    timestamp: Number(cast.timestamp),
-                    likes: cast.reactions.likes,
-                    recasts: cast.reactions.recasts,
-                    category: cast.aiAnalysis?.category,
-                    tags: cast.labels,
-                    sentiment: cast.aiAnalysis?.sentiment,
-                    popularity: cast.aiAnalysis?.popularity,
-                    aiScore: cast.aiAnalysis?.aiScore,
-                    isCulturalToken: cast.aiAnalysis?.hasCulturalElements || false,
-                    artStyle: cast.aiAnalysis?.artStyle,
-                    culturalContext: cast.aiAnalysis?.culturalContext
-                  }
-                }
+          const data = await response.json()
+          
+          if (!data?.casts) {
+            throw new Error('Invalid MBD AI response format')
+          }
 
-                // Use the agent to analyze cultural relevance
+          // Filter for cultural tokens using AI analysis
+          const culturalTokens = data.casts.filter((cast: MbdCast) => {
+            const analysis = cast.aiAnalysis
+            return analysis?.hasCulturalElements || 
+                   analysis?.category?.toLowerCase().includes('art') ||
+                   analysis?.category?.toLowerCase().includes('music') ||
+                   analysis?.category?.toLowerCase().includes('culture')
+          })
+
+          if (culturalTokens.length > 0) {
+            console.log('[Demo] Found cultural tokens through MBD AI:', culturalTokens.length)
+            const processedTokens = await Promise.all(
+              culturalTokens.map(async (cast: MbdCast) => {
                 try {
-                  const analysis = await sendMessage({
-                    message: `Please analyze this token for cultural relevance: ${token.name} (${token.symbol}) - ${token.description}`,
-                    userId: fid?.toString(),
-                    context: { currentToken: token }
-                  })
-
-                  if (analysis.metadata?.tokenRecommendations?.[0]) {
-                    const recommendation = analysis.metadata.tokenRecommendations[0]
-                    return {
-                      ...token,
-                      culturalScore: recommendation.culturalScore,
-                      metadata: {
-                        ...token.metadata,
-                        ...recommendation.metadata
-                      }
+                  // Process token with additional AI analysis
+                  const token = {
+                    id: cast.hash,
+                    name: cast.text.split('\n')[0] || 'Untitled Token',
+                    symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+                    description: cast.text,
+                    price: 0.001,
+                    image: cast.author.pfp,
+                    category: cast.aiAnalysis?.category || 'cultural',
+                    social: {
+                      website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+                    },
+                    metadata: {
+                      authorFid: String(cast.author.fid),
+                      authorUsername: cast.author.username,
+                      timestamp: Number(cast.timestamp),
+                      likes: cast.reactions.likes,
+                      recasts: cast.reactions.recasts,
+                      category: cast.aiAnalysis?.category,
+                      tags: cast.labels,
+                      sentiment: cast.aiAnalysis?.sentiment,
+                      popularity: cast.aiAnalysis?.popularity,
+                      aiScore: cast.aiAnalysis?.aiScore,
+                      isCulturalToken: true,
+                      artStyle: cast.aiAnalysis?.artStyle,
+                      culturalContext: cast.aiAnalysis?.culturalContext
                     }
                   }
-                } catch (analysisError) {
-                  console.error('[Demo] Token analysis error:', analysisError)
-                }
-                
-                return token
-              } catch (castError) {
-                console.error('[Demo] Error processing cast:', castError)
-                return null
-              }
-            })
-          )
 
-          const validTokens = processedTokens.filter((token): token is TokenItem => token !== null)
-          setTokens(validTokens)
-          setHasMore(!!trendingFeed.next)
-          setCursor(trendingFeed.next)
-        } catch (feedError) {
-          console.error('[Demo] Failed to fetch trending feed:', feedError)
-          throw feedError // Re-throw to be caught by outer try-catch
+                  // Enhance with AI agent analysis
+                  try {
+                    const analysis = await sendMessage({
+                      message: `Analyze cultural significance: ${token.name} (${token.symbol}) - ${token.description}`,
+                      userId: fid?.toString(),
+                      context: { currentToken: token }
+                    })
+
+                    if (analysis.metadata?.tokenRecommendations?.[0]) {
+                      return {
+                        ...token,
+                        culturalScore: analysis.metadata.tokenRecommendations[0].culturalScore,
+                        metadata: {
+                          ...token.metadata,
+                          ...analysis.metadata.tokenRecommendations[0].metadata
+                        }
+                      }
+                    }
+                  } catch (analysisError) {
+                    console.error('[Demo] Token analysis error:', analysisError)
+                  }
+                  
+                  return token
+                } catch (error) {
+                  console.error('[Demo] Error processing token:', error)
+                  return null
+                }
+              })
+            )
+
+            const validTokens = processedTokens.filter((token): token is TokenItem => token !== null)
+            if (validTokens.length > 0) {
+              setTokens(validTokens)
+              hasData = true
+            }
+          }
+        } catch (mbdError) {
+          console.error('[Demo] MBD AI error:', mbdError)
+          // Don't throw, try fallback data
+        }
+      }
+
+      // 3. Use fallback cultural token data if all else fails
+      if (!hasData) {
+        console.log('[Demo] Using fallback cultural token data')
+        // Use the pre-defined cultural tokens from the database
+        const fallbackTokens = tokenDatabase.filter(token => 
+          token.metadata?.isCulturalToken || 
+          token.metadata?.category?.toLowerCase().includes('art') ||
+          token.metadata?.category?.toLowerCase().includes('music') ||
+          token.metadata?.category?.toLowerCase().includes('culture')
+        )
+        
+        if (fallbackTokens.length > 0) {
+          setTokens(fallbackTokens)
+          hasData = true
+        } else {
+          throw new Error('No cultural tokens available')
         }
       }
     } catch (error) {
-      console.error('[Demo] Failed to load initial data:', error)
-      setError(error instanceof Error ? error.message : 'Failed to load initial data')
-      setTokens([]) // Reset tokens on error
+      console.error('[Demo] Failed to load cultural tokens:', error)
+      setError(error instanceof Error ? error.message : 'Failed to load cultural tokens')
+      setTokens([])
     } finally {
       setIsLoading(false)
     }

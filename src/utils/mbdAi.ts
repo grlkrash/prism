@@ -496,7 +496,7 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
 }
 
 export async function getTrendingFeed(cursor?: string) {
-  console.log('[MBD AI] Fetching trending feed')
+  console.log('[MBD AI] Fetching production trending feed')
   
   try {
     const params = new URLSearchParams({
@@ -508,80 +508,41 @@ export async function getTrendingFeed(cursor?: string) {
     }
 
     const requestUrl = `/api/mbd?${params.toString()}`
-    console.log('[MBD AI] Making request to:', requestUrl)
+    console.log('[MBD AI] Making production request to:', requestUrl)
 
     const response = await fetch(requestUrl, {
       method: 'GET',
       headers: {
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
       }
     })
 
     if (!response.ok) {
       const errorData = await response.json()
-      console.error('[MBD AI] Error response:', {
+      console.error('[MBD AI] Production error:', {
         status: response.status,
         statusText: response.statusText,
         error: errorData
       })
-
-      // If we're in development or test mode, return mock data
-      if (process.env.NODE_ENV === 'development' || isTestMode) {
-        console.log('[MBD AI] Using mock data due to API error')
-        return {
-          casts: tokenDatabase.map(token => ({
-            hash: `mock-${token.id}`,
-            text: `${token.name} - ${token.description}`,
-            author: {
-              fid: 1,
-              username: token.artistName,
-              displayName: token.artistName
-            },
-            timestamp: new Date().toISOString(),
-            reactions: { likes: 0, recasts: 0 },
-            metadata: token.metadata
-          }))
-        }
-      }
-
       throw new Error(`Failed to fetch trending feed: ${response.status} - ${JSON.stringify(errorData)}`)
     }
 
     const result = await response.json()
     
     if (!result || !result.data) {
-      console.error('[MBD AI] Invalid response format:', result)
+      console.error('[MBD AI] Invalid production response:', result)
       throw new Error('Invalid API response format')
     }
 
-    console.log('[MBD AI] Successfully fetched data:', {
+    console.log('[MBD AI] Production data fetched:', {
       hasData: !!result.data,
       hasNextCursor: !!result.data.next
     })
 
     return result.data
   } catch (error) {
-    console.error('[MBD AI] Error in getTrendingFeed:', error)
-    
-    // If we're in development or test mode, return mock data
-    if (process.env.NODE_ENV === 'development' || isTestMode) {
-      console.log('[MBD AI] Using mock data due to error')
-      return {
-        casts: tokenDatabase.map(token => ({
-          hash: `mock-${token.id}`,
-          text: `${token.name} - ${token.description}`,
-          author: {
-            fid: 1,
-            username: token.artistName,
-            displayName: token.artistName
-          },
-          timestamp: new Date().toISOString(),
-          reactions: { likes: 0, recasts: 0 },
-          metadata: token.metadata
-        }))
-      }
-    }
-    
+    console.error('[MBD AI] Production error in getTrendingFeed:', error)
     throw error
   }
 }
