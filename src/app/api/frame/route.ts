@@ -9,7 +9,8 @@ function generateFrameHtml({
   token,
   recommendations,
   friendActivities,
-  referrals
+  referrals,
+  errorMessage
 }: {
   imageUrl: string
   postUrl: string
@@ -17,6 +18,7 @@ function generateFrameHtml({
   recommendations?: any
   friendActivities?: any[]
   referrals?: any[]
+  errorMessage?: string
 }) {
   const buttons = token ? [
     { label: 'View Details', action: 'view' },
@@ -30,17 +32,19 @@ function generateFrameHtml({
     { label: 'My Referrals', action: 'referrals' }
   ]
 
-  const description = token 
-    ? `${token.description}\n\nCultural Score: ${token.culturalScore}/100` 
-    : friendActivities?.length 
-      ? `Your friends' recent activity:\n${friendActivities.map(activity => 
-          `${activity.username} ${activity.action}ed ${activity.tokenId}`
-        ).join('\n')}`
-      : referrals?.length
-        ? `Your referral rewards:\n${referrals.map(ref => 
-            `Earned ${ref.reward} points for referring ${ref.referredId}`
+  const description = errorMessage 
+    ? errorMessage
+    : token 
+      ? `${token.description}\n\nCultural Score: ${token.culturalScore}/100` 
+      : friendActivities?.length 
+        ? `Your friends' recent activity:\n${friendActivities.map(activity => 
+            `${activity.username} ${activity.action}ed ${activity.tokenId}`
           ).join('\n')}`
-        : 'Discover and collect cultural tokens'
+        : referrals?.length
+          ? `Your referral rewards:\n${referrals.map(ref => 
+              `Earned ${ref.reward} points for referring ${ref.referredId}`
+            ).join('\n')}`
+          : 'Discover and collect cultural tokens'
 
   return `<!DOCTYPE html>
 <html>
@@ -63,10 +67,10 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
     
-    // Get initial recommendations from agent with thread_id
+    // Get initial trending cultural tokens
     const response = await sendMessage({
-      message: 'Please recommend some trending cultural tokens based on Farcaster activity',
-      userId: 'initial-view',
+      message: 'Please analyze trending art and cultural tokens on Farcaster',
+      userId: 'anonymous', // Use anonymous instead of initial-view
       threadId: `grlkrash-frame-${crypto.randomUUID()}`
     })
 
@@ -75,7 +79,8 @@ export async function GET(req: NextRequest) {
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
       imageUrl: token?.imageUrl || 'https://placehold.co/1200x630/png',
-      token
+      token,
+      errorMessage: undefined // Fix type error
     })
     
     return new NextResponse(html, {
@@ -103,20 +108,23 @@ export async function POST(req: NextRequest) {
     
     const { button, fid } = message
     
-    // Get recommendations from agent with thread_id
+    // Get recommendations based on user context
     const response = await sendMessage({
-      message: 'Please recommend some trending cultural tokens based on Farcaster activity',
+      message: fid 
+        ? 'Please recommend personalized art and cultural tokens based on user preferences'
+        : 'Please analyze trending art and cultural tokens on Farcaster',
       userId: fid ? String(fid) : 'anonymous',
       threadId: `grlkrash-frame-${crypto.randomUUID()}`,
-      context: {
-        farcasterContext: { userFid: fid ? String(fid) : undefined }
-      }
+      context: fid ? {
+        farcasterContext: { userFid: String(fid) }
+      } : undefined
     })
 
     let currentToken = response.metadata?.tokenRecommendations?.[0]
     let recommendations = null
     let friendActivities = null
     let referrals = null
+    let errorMessage: string | undefined = undefined // Fix type error
     
     // Handle different button actions
     switch (button) {
@@ -126,16 +134,22 @@ export async function POST(req: NextRequest) {
       case 2: // Buy Token/Get Recommendations
         if (fid) {
           recommendations = await getPersonalizedFeed(fid)
+        } else {
+          errorMessage = '🔒 Sign in with Farcaster to get personalized recommendations'
         }
         break
       case 3: // Share/Friend Activity
         if (fid) {
           friendActivities = await getFriendActivities(fid)
+        } else {
+          errorMessage = '🔒 Sign in with Farcaster to see friend activity'
         }
         break
       case 4: // Next/My Referrals
         if (fid) {
           referrals = await getReferrals(fid)
+        } else {
+          errorMessage = '🔒 Sign in with Farcaster to view your referrals'
         }
         break
     }
@@ -158,7 +172,8 @@ export async function POST(req: NextRequest) {
       token: currentToken,
       recommendations,
       friendActivities: friendActivities || undefined,
-      referrals: referrals || undefined
+      referrals: referrals || undefined,
+      errorMessage
     })
     
     return new NextResponse(html, {
