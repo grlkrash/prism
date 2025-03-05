@@ -170,27 +170,48 @@ export default function Demo() {
       // Fetch from both sources in parallel
       const [agentResults, mbdResults] = await Promise.allSettled([
         // 1. AI Agent + LangChain + OpenAI
-        fid ? sendMessage({
-          message: 'Please analyze and recommend cultural tokens, focusing on art, music, and creative content. Use cultural scoring and sentiment analysis.',
-          userId: fid.toString(),
-          context: {
-            userPreferences: {
-              interests: ['art', 'music', 'culture'],
-              filters: {
-                minScore: MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE,
-                categories: MBD_AI_CONFIG.CULTURAL_TOKEN.INDICATORS.CONTENT
+        fid ? (async () => {
+          console.log('[Demo] Requesting AI agent recommendations for FID:', fid)
+          const result = await sendMessage({
+            message: 'Please analyze and recommend cultural tokens, focusing on art, music, and creative content. Use cultural scoring and sentiment analysis.',
+            userId: fid.toString(),
+            context: {
+              userPreferences: {
+                interests: ['art', 'music', 'culture'],
+                filters: {
+                  minScore: MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE,
+                  categories: MBD_AI_CONFIG.CULTURAL_TOKEN.INDICATORS.CONTENT
+                }
               }
             }
-          }
-        }) : Promise.resolve(null),
+          })
+          console.log('[Demo] AI agent response:', {
+            success: !!result,
+            hasRecommendations: !!result?.metadata?.tokenRecommendations,
+            recommendationCount: result?.metadata?.tokenRecommendations?.length || 0,
+            firstRecommendation: result?.metadata?.tokenRecommendations?.[0] || null
+          })
+          return result
+        })() : Promise.resolve(null),
 
         // 2. MBD AI with cultural filtering
-        fetch('/api/mbd?endpoint=/v2/discover-actions', {
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          }
-        }).then(res => res.json())
+        (async () => {
+          console.log('[Demo] Requesting MBD AI cultural tokens')
+          const response = await fetch('/api/mbd?endpoint=/v2/discover-actions', {
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            }
+          })
+          const data = await response.json()
+          console.log('[Demo] MBD AI response:', {
+            success: response.ok,
+            status: response.status,
+            hasCasts: !!data?.casts,
+            castCount: data?.casts?.length || 0
+          })
+          return data
+        })()
       ])
 
       const combinedTokens: TokenItem[] = []

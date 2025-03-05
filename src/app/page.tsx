@@ -10,16 +10,8 @@ const Demo = dynamic(() => import('./components/Demo'), {
 
 export default function Home() {
   return (
-    <div className="min-h-screen">
-      <header className="border-b">
-        <div className="container mx-auto px-4 py-4">
-          <h1 className="text-2xl font-bold">Prism - Cultural Token Discovery</h1>
-        </div>
-      </header>
-      
-      <main className="container mx-auto p-4">
-        <Demo />
-      </main>
-    </div>
+    <main className="min-h-screen">
+      <Demo />
+    </main>
   )
 }
