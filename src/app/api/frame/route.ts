@@ -5,7 +5,7 @@ import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast } from '@
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { OpenAI } from 'openai'
-import getFrameMessage from '@farcaster/frame-sdk'
+import frameSdk from '@farcaster/frame-sdk'
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -239,11 +239,25 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
       return { isValid: false }
     }
 
-    // For production, validate messageBytes
+    // For production, validate messageBytes using Warpcast API
     if (process.env.NODE_ENV === 'production' && trustedData?.messageBytes) {
       try {
-        const result = await getFrameMessage(body)
-        if (!result.isValid) {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_FARCASTER_HUB_URL}/v1/validateMessage`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Authorization': `Bearer ${process.env.FARCASTER_API_KEY}`
+          },
+          body: trustedData.messageBytes
+        })
+
+        if (!response.ok) {
+          logger.error('Invalid frame request: Hub validation failed')
+          return { isValid: false }
+        }
+
+        const result = await response.json()
+        if (!result.valid) {
           logger.error('Invalid frame request: Message validation failed')
           return { isValid: false }
         }

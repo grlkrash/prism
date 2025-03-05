@@ -121,7 +121,7 @@ export async function getReferrals(userId: string): Promise<Referral[]> {
   return []
 }
 
-export async function sendMessage({ message, userId, hasContext = true }: SendMessageParams): Promise<AgentResponse> {
+export async function sendMessage({ message, userId, context }: SendMessageParams): Promise<AgentResponse> {
   try {
     const url = new URL('/api/agent', API_BASE_URL)
     
@@ -133,7 +133,7 @@ export async function sendMessage({ message, userId, hasContext = true }: SendMe
       body: JSON.stringify({
         message,
         userId,
-        hasContext,
+        context,
       }),
     })
 
