@@ -92,35 +92,39 @@ async function initializeAgent() {
 
     const tools = await getLangChainTools(agentkit)
 
-    // Create React Agent with memory and thread_id
-    const agent = await createReactAgent({
-      llm,
-      tools,
-      checkpointSaver: memory,
-      messageModifier: AGENTKIT_CONFIG.SYSTEM_PROMPT,
-    })
-
-    // Wrap agent to ensure thread_id is always present
-    return {
-      invoke: async ({ messages, configurable }: { messages: any[], configurable?: any }) => {
-        const config = {
-          ...configurable,
-          thread_id: configurable?.thread_id || `grlkrash-agent-${crypto.randomUUID()}`
-        }
-
-        const response = await agent.invoke(messages, { configurable: config })
+    // Create a custom agent executor
+    const executor = {
+      invoke: async (input: { messages: any[], configurable?: any }) => {
+        const threadId = input.configurable?.thread_id || `grlkrash-agent-${crypto.randomUUID()}`
         
-        // Ensure response content is a string
-        const content = typeof response.content === 'object' 
-          ? JSON.stringify(response.content)
-          : String(response.content)
+        try {
+          // Format the input message
+          const lastMessage = input.messages[input.messages.length - 1]
+          const prompt = `${AGENTKIT_CONFIG.SYSTEM_PROMPT}\n\nHuman: ${lastMessage.content}\n\nAssistant:`
 
-        return {
-          messages: [{ content, role: 'assistant' }],
-          configurable: config
+          // Call LLM with tools
+          const response = await llm.invoke(prompt, {
+            tools,
+            configurable: { thread_id: threadId }
+          })
+
+          // Format the response
+          const content = typeof response.content === 'object'
+            ? JSON.stringify(response.content)
+            : String(response.content || '')
+
+          return {
+            messages: [{ content, role: 'assistant' }],
+            configurable: { thread_id: threadId }
+          }
+        } catch (error) {
+          logger.error('Error in agent execution:', error)
+          throw error
         }
       }
     }
+
+    return executor
   } catch (error) {
     logger.error('Failed to initialize agent:', error)
     throw error
@@ -136,6 +140,8 @@ export async function getAgent() {
 
 export async function sendMessage(request: unknown): Promise<AgentResponse> {
   try {
+    logger.debug('Starting sendMessage with request:', request)
+
     // Validate request
     const { message, userId, context } = z.object({
       message: z.string(),
@@ -143,14 +149,20 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
       context: z.record(z.any()).optional()
     }).parse(request)
 
+    logger.debug('Request validated successfully')
+
     // Check rate limit
     if (userId && !checkRateLimit(userId)) {
+      logger.warn('Rate limit exceeded for user:', userId)
       throw new RateLimitError('Rate limit exceeded')
     }
 
     // Get agent instance
+    logger.debug('Getting agent instance')
     const agent = await getAgent()
     const threadId = `grlkrash-agent-${crypto.randomUUID()}`
+    
+    logger.debug('Calling agent with message:', { message, threadId })
     
     // Call agent with message and thread ID
     const result = await agent.invoke({
@@ -158,14 +170,20 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
       configurable: { thread_id: threadId }
     })
 
+    logger.debug('Agent response received:', result)
+
     // Extract content and ensure it's a string
     const content = typeof result.messages[0].content === 'object'
       ? JSON.stringify(result.messages[0].content)
       : String(result.messages[0].content)
 
+    logger.debug('Content extracted:', content)
+
     // Extract recommendations and actions
     const tokenRecommendations = extractTokenRecommendations(content)
     const actions = extractActions(content)
+
+    logger.debug('Extracted data:', { tokenRecommendations, actions })
 
     // Construct and validate response
     const response: AgentResponse = {
@@ -179,6 +197,7 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
       }
     }
 
+    logger.debug('Validating response')
     return agentResponseSchema.parse(response)
 
   } catch (error) {
@@ -189,7 +208,10 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
     if (error instanceof RateLimitError) {
       throw new AgentkitError('Rate limit exceeded', 429)
     }
-    throw new AgentkitError('Internal server error', 500)
+    throw new AgentkitError(
+      error instanceof Error ? error.message : 'Internal server error',
+      500
+    )
   }
 }
 
@@ -266,13 +288,26 @@ function extractActions(content: string) {
     if (!actionsMatch) return []
     
     const actionsText = actionsMatch[1].trim()
+    const validActionTypes = ['view', 'buy', 'share', 'analyze', 'farcaster'] as const
+    type ActionType = typeof validActionTypes[number]
+
     return actionsText.split('\n')
       .filter(line => line.trim())
       .map(line => {
         const [type, tokenId, label] = line.trim().split('|')
-        return { type, tokenId, label }
+        // Validate action type
+        if (!type || !tokenId || !label || !validActionTypes.includes(type as ActionType)) {
+          return null
+        }
+        return { 
+          type: type as ActionType, 
+          tokenId, 
+          label 
+        }
       })
-      .filter(action => action.type && action.tokenId && action.label)
+      .filter((action): action is { type: ActionType; tokenId: string; label: string } => 
+        action !== null
+      )
   } catch (error) {
     logger.error('Error extracting actions:', error)
     return []

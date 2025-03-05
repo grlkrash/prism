@@ -4,58 +4,48 @@ import { sendMessage } from '@/utils/agentkit';
 import { agentRequestSchema, agentResponseSchema } from '@/config/agentkit';
 import { logger } from '@/utils/logger';
 import { ZodError } from 'zod';
+import { z } from 'zod';
+
+const requestSchema = z.object({
+  message: z.string(),
+  userId: z.string().optional(),
+  context: z.record(z.any()).optional()
+});
 
 // Implement the agent handler
 export async function POST(req: NextRequest) {
   try {
-    // Ensure request body is valid JSON
-    let body
-    try {
-      body = await req.json()
-    } catch (e) {
-      return NextResponse.json(
-        { error: 'Invalid JSON in request body' },
-        { status: 400 }
-      )
-    }
+    // Parse and validate request
+    const body = await req.json();
+    const validatedRequest = requestSchema.parse(body);
 
-    // Validate request data
-    const validatedData = agentRequestSchema.parse(body)
-    
-    // Process with agent
-    const response = await sendMessage({
-      message: validatedData.message,
-      userId: validatedData.userId,
-      context: validatedData.context
-    })
-    
-    // Ensure response is valid before sending
-    const validatedResponse = agentResponseSchema.parse(response)
-    
-    return NextResponse.json(validatedResponse)
+    // Send message to agent
+    const response = await sendMessage(validatedRequest);
+
+    // Return formatted response
+    return NextResponse.json(response);
   } catch (error) {
-    logger.error('Error in agent route:', error)
+    logger.error('Error in agent route:', error);
     
-    if (error instanceof ZodError) {
+    // Handle specific error types
+    if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid request format', details: error.errors },
         { status: 400 }
-      )
+      );
     }
 
-    if (error instanceof Error && error.name === 'RateLimitError') {
+    if (error instanceof Error) {
+      const status = (error as any).status || 500;
       return NextResponse.json(
-        { error: error.message },
-        { status: 429 }
-      )
+        { error: error.message || 'Internal server error' },
+        { status }
+      );
     }
-
-    // Log detailed error for debugging
-    console.error('Detailed error:', error)
 
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
-    )
+    );
   }
 }
