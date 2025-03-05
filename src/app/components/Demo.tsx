@@ -1,6 +1,8 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import sdk from '@farcaster/frame-sdk'
 import { Button } from '@/components/ui/button'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { useFeed, type TokenItem } from '@/hooks/useFeed'
 
 interface FrameContext {
   fid?: number
@@ -14,81 +16,105 @@ interface FrameContext {
   }
 }
 
-interface Token {
-  id: string
-  name: string
-  image: string
-  description: string
-  score: number
-}
-
 export default function Demo() {
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [context, setContext] = useState<FrameContext | null>(null)
+  const [ethAmount, setEthAmount] = useState<string>('')
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [isContextOpen, setIsContextOpen] = useState(false)
-  const [tokens, setTokens] = useState<Token[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [currentPage, setCurrentPage] = useState(0)
+  const feedEndRef = useRef<HTMLDivElement>(null)
+
+  const {
+    tokens,
+    isLoading,
+    hasMore,
+    refresh,
+    loadMore
+  } = useFeed()
 
   useEffect(() => {
     const load = async () => {
       try {
+        if (!sdk) throw new Error('SDK not loaded')
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
         const ctx = await sdk.context
         setContext(ctx?.user || null)
-        await sdk.actions.ready()
-        setIsSDKLoaded(true)
         
-        // Load initial tokens
-        const initialTokens = await fetchTokens()
-        setTokens(initialTokens)
-        setIsLoading(false)
-      } catch (error) {
-        console.error('Failed to load SDK:', error)
-        setIsLoading(false)
+        if (sdk.actions) {
+          await sdk.actions.ready()
+          setIsSDKLoaded(true)
+        } else {
+          throw new Error('SDK actions not available')
+        }
+      } catch (err) {
+        console.error('Failed to initialize SDK:', err)
+        setError(err instanceof Error ? err.message : 'Failed to initialize SDK')
       }
     }
-    
-    if (sdk && !isSDKLoaded) {
-      load()
+    load()
+  }, [])
+
+  // Infinite scroll observer
+  useEffect(() => {
+    if (!feedEndRef.current) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoading) {
+          loadMore()
+        }
+      },
+      { threshold: 0.5 }
+    )
+
+    observer.observe(feedEndRef.current)
+    return () => observer.disconnect()
+  }, [hasMore, isLoading, loadMore])
+
+  const handlePullToRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    await refresh()
+    setIsRefreshing(false)
+  }, [refresh])
+
+  const calculateTokenAmount = (ethAmt: string, tokenPrice: number) => {
+    const eth = parseFloat(ethAmt)
+    if (isNaN(eth)) return '0'
+    return (eth / tokenPrice).toFixed(2)
+  }
+
+  const handleBuy = useCallback((token: TokenItem) => {
+    if (sdk.actions) {
+      sdk.actions.openUrl(`https://base.org/swap?token=${token.id}&amount=${ethAmount}`)
     }
-  }, [isSDKLoaded])
+  }, [ethAmount])
+
+  const handleShare = useCallback((token: TokenItem) => {
+    if (sdk.actions) {
+      sdk.actions.openUrl(`https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`)
+    }
+  }, [])
 
   const toggleContext = useCallback(() => {
     setIsContextOpen((prev) => !prev)
   }, [])
 
-  const handleCollect = async (tokenId: string) => {
-    try {
-      // Implement collect action using Frame SDK
-      await sdk.actions.openUrl({
-        url: `https://warpcast.com/~/token/${tokenId}`,
-      })
-    } catch (error) {
-      console.error('Failed to collect token:', error)
-    }
-  }
-
-  const handleShare = async (tokenId: string) => {
-    try {
-      // Implement share action using Frame SDK
-      await sdk.actions.openUrl({
-        url: `https://warpcast.com/~/compose?text=Check out this token: ${tokenId}`,
-      })
-    } catch (error) {
-      console.error('Failed to share token:', error)
-    }
-  }
-
-  const handleNextPage = useCallback(() => {
-    setCurrentPage((prev) => prev + 1)
-  }, [])
-
-  const handlePrevPage = useCallback(() => {
-    setCurrentPage((prev) => Math.max(0, prev - 1))
-  }, [])
-
   if (!isSDKLoaded || isLoading) {
-    return <div className="flex items-center justify-center h-full">Loading...</div>
+    return (
+      <div className="flex items-center justify-center h-full">
+        <LoadingSpinner />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="text-red-500 text-center p-4">
+        {error}
+      </div>
+    )
   }
 
   return (
@@ -119,65 +145,57 @@ export default function Demo() {
 
       {/* Token Feed */}
       <div className="space-y-4">
-        {tokens.slice(currentPage * 3, (currentPage + 1) * 3).map((token) => (
-          <div key={token.id} className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
-            <img 
-              src={token.image} 
-              alt={token.name}
-              className="w-full h-48 object-cover rounded-lg mb-2"
-            />
-            <h3 className="font-bold">{token.name}</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-              {token.description}
-            </p>
-            <div className="flex justify-between gap-2">
-              <Button 
-                onClick={() => handleCollect(token.id)}
-                className="flex-1"
-              >
-                Collect
-              </Button>
-              <Button 
-                onClick={() => handleShare(token.id)}
-                className="flex-1"
-              >
-                Share
-              </Button>
+        {tokens.map((token: TokenItem) => (
+          <div 
+            key={token.id} 
+            className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-all hover:shadow-lg"
+          >
+            {/* Token Image */}
+            <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg mb-4 flex items-center justify-center">
+              <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
+            </div>
+
+            {/* Token Info */}
+            <div className="space-y-2">
+              <h2 className="font-bold text-lg">{token.name}</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-300">{token.description}</p>
+              <p className="text-sm font-medium">1 ETH = {(1/token.price).toFixed(0)} {token.symbol}</p>
+            </div>
+
+            {/* Buy Input */}
+            <div className="mt-4 space-y-2">
+              <input
+                type="number"
+                placeholder="ETH Amount"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600"
+                value={ethAmount}
+                onChange={(e) => setEthAmount(e.target.value)}
+                min="0"
+                step="0.01"
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                ≈ {calculateTokenAmount(ethAmount, token.price)} {token.symbol}
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <Button onClick={() => handleBuy(token)} variant="default">Buy</Button>
+              <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
             </div>
           </div>
         ))}
-      </div>
 
-      {/* Pagination */}
-      <div className="flex justify-between mt-4">
-        <Button 
-          onClick={handlePrevPage}
-          disabled={currentPage === 0}
-        >
-          Previous
-        </Button>
-        <Button 
-          onClick={handleNextPage}
-          disabled={tokens.length <= (currentPage + 1) * 3}
-        >
-          Next
-        </Button>
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="py-4 flex justify-center">
+            <LoadingSpinner />
+          </div>
+        )}
+
+        {/* Infinite scroll trigger */}
+        <div ref={feedEndRef} className="h-4" />
       </div>
     </div>
   )
-}
-
-// Helper function to fetch tokens (implement with your API)
-async function fetchTokens(): Promise<Token[]> {
-  // TODO: Replace with actual API call
-  return [
-    {
-      id: '1',
-      name: 'Example Token 1',
-      image: 'https://placeholder.co/300x200',
-      description: 'An example cultural token',
-      score: 85
-    },
-    // Add more example tokens...
-  ]
 } 
