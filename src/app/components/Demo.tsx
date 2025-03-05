@@ -9,7 +9,7 @@ export default function Demo() {
   useEffect(() => {
     async function load() {
       try {
-        const ctx = await sdk.context()
+        const ctx = await sdk.context
         await sdk.actions.ready()
         setContext(ctx)
         setIsSDKLoaded(true)
@@ -25,8 +25,8 @@ export default function Demo() {
   if (!isSDKLoaded) return <div>Loading SDK...</div>
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Frame Demo</h1>
+    <div className="w-[300px] mx-auto py-4 px-2">
+      <h1 className="text-2xl font-bold text-center mb-4">Frames v2 Demo</h1>
       <pre className="bg-gray-100 p-4 rounded">
         {JSON.stringify(context, null, 2)}
       </pre>
