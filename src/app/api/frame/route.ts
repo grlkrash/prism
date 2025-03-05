@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeToken, getPersonalizedFeed } from '@/utils/mbdAi'
-import { sendMessage } from '@/utils/agentkit'
+import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
 import { validateFrameRequest } from '@/utils/mbdAi'
 
 function generateFrameHtml({
   imageUrl,
   postUrl,
   token,
-  recommendations
+  recommendations,
+  friendActivities,
+  referrals
 }: {
   imageUrl: string
   postUrl: string
   token?: any
   recommendations?: any
+  friendActivities?: any[]
+  referrals?: any[]
 }) {
   const buttons = token ? [
     { label: 'View Details', action: 'view' },
@@ -21,12 +25,22 @@ function generateFrameHtml({
     { label: 'Next', action: 'next' }
   ] : [
     { label: 'View Gallery', action: 'gallery' },
-    { label: 'Get Recommendations', action: 'recommend' }
+    { label: 'Get Recommendations', action: 'recommend' },
+    { label: 'Friend Activity', action: 'friends' },
+    { label: 'My Referrals', action: 'referrals' }
   ]
 
   const description = token 
     ? `${token.description}\n\nCultural Score: ${token.culturalScore}/100` 
-    : 'Discover and collect cultural tokens'
+    : friendActivities?.length 
+      ? `Your friends' recent activity:\n${friendActivities.map(activity => 
+          `${activity.username} ${activity.action}ed ${activity.tokenId}`
+        ).join('\n')}`
+      : referrals?.length
+        ? `Your referral rewards:\n${referrals.map(ref => 
+            `Earned ${ref.reward} points for referring ${ref.referredId}`
+          ).join('\n')}`
+        : 'Discover and collect cultural tokens'
 
   return `<!DOCTYPE html>
 <html>
@@ -101,6 +115,8 @@ export async function POST(req: NextRequest) {
 
     let currentToken = response.metadata?.tokenRecommendations?.[0]
     let recommendations = null
+    let friendActivities = null
+    let referrals = null
     
     // Handle different button actions
     switch (button) {
@@ -112,12 +128,15 @@ export async function POST(req: NextRequest) {
           recommendations = await getPersonalizedFeed(fid)
         }
         break
-      case 3: // Share
-        // Handle share action
+      case 3: // Share/Friend Activity
+        if (fid) {
+          friendActivities = await getFriendActivities(fid)
+        }
         break
-      case 4: // Next
-        // Get next token from recommendations
-        currentToken = response.metadata?.tokenRecommendations?.[1]
+      case 4: // Next/My Referrals
+        if (fid) {
+          referrals = await getReferrals(fid)
+        }
         break
     }
     
@@ -134,20 +153,21 @@ export async function POST(req: NextRequest) {
     }
     
     const html = generateFrameHtml({
+      imageUrl: currentToken?.imageUrl || 'https://picsum.photos/800/600',
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: currentToken?.imageUrl || 'https://placehold.co/1200x630/png',
       token: currentToken,
-      recommendations
+      recommendations,
+      friendActivities: friendActivities || undefined,
+      referrals: referrals || undefined
     })
     
     return new NextResponse(html, {
       headers: {
-        'Content-Type': 'text/html',
-        'Cache-Control': 'no-store'
+        'Content-Type': 'text/html'
       }
     })
   } catch (error) {
-    console.error('Error in POST:', error)
-    return new NextResponse('Error', { status: 500 })
+    console.error('Error in frame route:', error)
+    return new NextResponse('Internal Server Error', { status: 500 })
   }
 } 

@@ -21,6 +21,7 @@ A Next.js application that implements a Farcaster Frame for discovering and inte
    NEXT_PUBLIC_MBD_AI_API_KEY=your_mbd_ai_key
    NEXT_PUBLIC_BASE_RPC_URL=your_base_rpc_url
    AGENTKIT_API_KEY=your_agentkit_key
+   NEXT_PUBLIC_WARPCAST_API_URL=https://api.warpcast.com/v2
    ```
 4. Run the development server:
    ```bash
@@ -38,6 +39,7 @@ A Next.js application that implements a Farcaster Frame for discovering and inte
 - `NEXT_PUBLIC_MBD_AI_API_KEY`: API key for MBD AI
 - `NEXT_PUBLIC_BASE_RPC_URL`: Base RPC URL
 - `AGENTKIT_API_KEY`: API key for Agentkit
+- `NEXT_PUBLIC_WARPCAST_API_URL`: Warpcast API URL (defaults to https://api.warpcast.com/v2)
 
 ## Tech Stack
 

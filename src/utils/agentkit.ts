@@ -2,6 +2,7 @@ import { AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, g
 import { logger } from './logger'
 import { analyzeToken, Token } from './mbdAi'
 import { HumanMessage } from "@langchain/core/messages"
+import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions } from './farcaster'
 
 // SocialFi types
 interface FriendActivity {
@@ -10,6 +11,8 @@ interface FriendActivity {
   action: 'buy' | 'sell' | 'share'
   tokenId: string
   timestamp: string
+  category?: 'art' | 'music' | 'culture' | 'media' | 'entertainment'
+  culturalContext?: string
 }
 
 interface Referral {
@@ -19,10 +22,6 @@ interface Referral {
   timestamp: string
   reward: number
 }
-
-// In-memory storage for demo purposes
-const friendActivities: FriendActivity[] = []
-const referrals: Referral[] = []
 
 export class AgentkitError extends Error {
   status: number
@@ -38,21 +37,58 @@ export class AgentkitError extends Error {
 
 // SocialFi functions
 export async function trackFriendActivity(activity: FriendActivity) {
-  friendActivities.push(activity)
+  // In a real implementation, this would store in a database
   return activity
 }
 
-export async function getFriendActivities(userId: string): Promise<FriendActivity[]> {
-  return friendActivities.filter(activity => activity.userId === userId)
+export async function getFriendActivities(userId: string, category?: FriendActivity['category']): Promise<FriendActivity[]> {
+  try {
+    // Get user's following list
+    const following = await getFarcasterFollowing(userId)
+    const activities: FriendActivity[] = []
+
+    // Get recent casts from each followed user
+    for (const friend of following) {
+      const casts = await getFarcasterCasts(String(friend.fid), 5)
+      
+      for (const cast of casts) {
+        const tokenMentions = extractTokenMentions(cast.text)
+        
+        for (const mention of tokenMentions) {
+          // Only include if it matches the requested category
+          if (!category || mention.category === category) {
+            activities.push({
+              userId: String(friend.fid),
+              username: friend.username,
+              action: cast.reactions.likes > 0 ? 'buy' : 'share',
+              tokenId: mention.tokenId,
+              timestamp: cast.timestamp,
+              category: mention.category as FriendActivity['category'],
+              culturalContext: cast.text
+            })
+          }
+        }
+      }
+    }
+
+    // Sort by timestamp, most recent first
+    return activities.sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
+  } catch (error) {
+    logger.error('Error fetching friend activities:', error)
+    return []
+  }
 }
 
 export async function trackReferral(referral: Referral) {
-  referrals.push(referral)
+  // In a real implementation, this would store in a database
   return referral
 }
 
 export async function getReferrals(userId: string): Promise<Referral[]> {
-  return referrals.filter(ref => ref.referrerId === userId)
+  // In a real implementation, this would fetch from a database
+  return []
 }
 
 export async function sendMessage(request: AgentRequest): Promise<AgentResponse> {
