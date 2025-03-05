@@ -143,14 +143,14 @@ export async function POST(req: NextRequest) {
     const recommendations = [
       ...(agentResponse.metadata?.tokenRecommendations || []),
       ...(mbdResponse?.data?.casts || [])
-        .filter(cast => cast.aiAnalysis?.hasCulturalElements)
-        .map(cast => ({
+        .filter((cast: Cast) => cast.aiAnalysis?.hasCulturalElements)
+        .map((cast: Cast) => ({
           id: cast.hash,
           name: cast.text.slice(0, 50),
           symbol: 'CULT',
           description: cast.text,
           imageUrl: 'https://placehold.co/1200x630/png',
-          culturalScore: cast.aiAnalysis?.culturalScore || 0
+          culturalScore: cast.metadata?.culturalScore || cast.aiAnalysis?.aiScore || 0
         }))
     ]
 
