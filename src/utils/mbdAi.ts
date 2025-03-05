@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { logger } from './logger'
+import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
 export interface Token {
   id: number
@@ -94,17 +95,110 @@ export const tokenDatabase: Token[] = [
   }
 ]
 
-const MBD_API_URL = process.env.NEXT_PUBLIC_MBD_AI_API_URL
-const MBD_API_KEY = process.env.NEXT_PUBLIC_MBD_AI_API_KEY
+// API Response Types
+interface MbdApiResponse<T> {
+  data: T
+  error?: {
+    code: string
+    message: string
+  }
+}
 
-if (!MBD_API_URL || !MBD_API_KEY) {
-  throw new Error('Missing required MBD AI environment variables')
+interface ContentAnalysis {
+  category: string
+  tags: string[]
+  sentiment: number
+  popularity: number
+  aiScore: number
+  culturalContext: string
+  artistBio: string
+}
+
+interface ImageAnalysis {
+  artStyle: string
+  isArtwork: boolean
+  hasCulturalElements: boolean
+  hasAudioElements: boolean
+  hasMediaElements: boolean
+}
+
+interface Cast {
+  hash: string
+  threadHash?: string
+  parentHash?: string
+  author: {
+    fid: number
+    username: string
+    displayName?: string
+    pfp?: string
+    bio?: string
+  }
+  text: string
+  timestamp: string
+  reactions: {
+    likes: number
+    recasts: number
+  }
+  replies?: {
+    count: number
+  }
+  viewerContext?: {
+    liked: boolean
+    recasted: boolean
+  }
+  labels?: string[]
+  aiAnalysis?: {
+    category: string
+    sentiment: number
+    popularity: number
+    aiScore: number
+    culturalContext: string
+    artStyle?: string
+    isArtwork?: boolean
+    hasCulturalElements?: boolean
+  }
+}
+
+interface FeedResponse {
+  casts: Cast[]
+  next?: {
+    cursor: string
+  }
+}
+
+interface LabelsResponse {
+  labels: {
+    hash: string
+    labels: string[]
+  }[]
+}
+
+interface User {
+  fid: number
+  username: string
+  displayName?: string
+  pfp?: string
+  bio?: string
+  aiAnalysis?: {
+    category: string
+    sentiment: number
+    popularity: number
+    aiScore: number
+    culturalContext: string
+  }
+}
+
+interface UsersResponse {
+  users: User[]
+  next?: {
+    cursor: string
+  }
 }
 
 // Rate limiting configuration
 const RATE_LIMIT = {
-  maxRequests: 100,
-  windowMs: 60 * 1000, // 1 minute
+  maxRequests: MBD_AI_CONFIG.RATE_LIMIT.MAX_REQUESTS,
+  windowMs: MBD_AI_CONFIG.RATE_LIMIT.WINDOW_MS,
   requests: new Map<string, number[]>()
 }
 
@@ -141,54 +235,22 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
-// API Response Types
-interface MbdApiResponse<T> {
-  data: T
-  error?: {
-    code: string
-    message: string
-  }
-}
-
-interface ContentAnalysis {
-  category: string
-  tags: string[]
-  sentiment: number
-  popularity: number
-  aiScore: number
-  culturalContext: string
-  artistBio: string
-}
-
-interface ImageAnalysis {
-  artStyle: string
-  isArtwork: boolean
-  hasCulturalElements: boolean
-  hasAudioElements: boolean
-  hasMediaElements: boolean
-}
-
-interface RecommendationsResponse {
-  tokens: Token[]
-  nextPage?: string
-}
-
 // Update makeMbdRequest to use generic type
 async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): Promise<T> {
   try {
     // Check rate limit if userId is provided
     if (userId && !checkRateLimit(userId)) {
       logger.warn('Rate limit exceeded', { userId, endpoint }, userId)
-      throw new RateLimitError('Rate limit exceeded. Please try again later.')
+      throw new RateLimitError(MBD_AI_CONFIG.ERRORS.RATE_LIMIT)
     }
 
     logger.debug('Making MBD AI request', { endpoint, data }, userId)
 
-    const response = await fetch(`${MBD_API_URL}${endpoint}`, {
+    const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MBD_API_KEY}`
+        'Authorization': `Bearer ${MBD_AI_CONFIG.API_KEY}`
       },
       body: JSON.stringify(data)
     })
@@ -201,7 +263,7 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
         endpoint 
       }, userId)
       throw new MbdApiError(
-        error.message || 'MBD AI API request failed',
+        error.message || MBD_AI_CONFIG.ERRORS.API_ERROR,
         response.status,
         error.code
       )
@@ -227,7 +289,7 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
       error,
       endpoint 
     }, userId)
-    throw new MbdApiError('Failed to communicate with MBD AI API')
+    throw new MbdApiError(MBD_AI_CONFIG.ERRORS.API_ERROR)
   }
 }
 
@@ -322,39 +384,18 @@ interface TokenWithScore extends Token {
   culturalScore?: number
 }
 
-export async function getPersonalizedFeed(userId: string, preferences?: {
-  categories?: string[]
-  minSentiment?: number
-  minPopularity?: number
-  prioritizeCulturalTokens?: boolean
-}) {
+export async function getPersonalizedFeed(userId: string, cursor?: string) {
   try {
-    const recommendations = await makeMbdRequest<RecommendationsResponse>('/recommendations', {
+    return await makeMbdRequest<FeedResponse>(MBD_AI_CONFIG.ENDPOINTS.FEED_FOR_YOU, {
       userId,
-      preferences: {
-        categories: preferences?.categories || [],
-        minSentiment: preferences?.minSentiment || 0,
-        minPopularity: preferences?.minPopularity || 0,
-        prioritizeCulturalTokens: preferences?.prioritizeCulturalTokens ?? true
-      }
+      cursor
     }, userId)
-    
-    const tokens: TokenWithScore[] = recommendations.tokens.map((token: Token) => ({
-      ...token,
-      culturalScore: calculateCulturalScore(token)
-    }))
-
-    if (preferences?.prioritizeCulturalTokens) {
-      tokens.sort((a: TokenWithScore, b: TokenWithScore) => (b.culturalScore || 0) - (a.culturalScore || 0))
-    }
-    
-    return tokens
   } catch (error) {
     if (error instanceof RateLimitError) {
       throw error
     }
-    console.error('Error getting personalized feed:', error)
-    return tokenDatabase
+    logger.error('Error getting personalized feed:', error)
+    return { casts: [], next: undefined }
   }
 }
 
@@ -402,6 +443,64 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
   }
 }
 
+export async function getTrendingFeed(cursor?: string) {
+  try {
+    return await makeMbdRequest<FeedResponse>(MBD_AI_CONFIG.ENDPOINTS.FEED_TRENDING, {
+      cursor
+    })
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      throw error
+    }
+    logger.error('Error getting trending feed:', error)
+    return { casts: [], next: undefined }
+  }
+}
+
+export async function searchCasts(query: string, cursor?: string) {
+  try {
+    return await makeMbdRequest<FeedResponse>(MBD_AI_CONFIG.ENDPOINTS.SEARCH_SEMANTIC, {
+      query,
+      cursor
+    })
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      throw error
+    }
+    logger.error('Error searching casts:', error)
+    return { casts: [], next: undefined }
+  }
+}
+
+export async function getLabelsForCasts(hashes: string[]) {
+  try {
+    return await makeMbdRequest<LabelsResponse>(MBD_AI_CONFIG.ENDPOINTS.LABELS_FOR_ITEMS, {
+      hashes
+    })
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      throw error
+    }
+    logger.error('Error getting labels for casts:', error)
+    return { labels: [] }
+  }
+}
+
+export async function getSimilarUsers(userId: string, cursor?: string) {
+  try {
+    return await makeMbdRequest<UsersResponse>(MBD_AI_CONFIG.ENDPOINTS.USERS_SIMILAR, {
+      userId,
+      cursor
+    }, userId)
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      throw error
+    }
+    logger.error('Error getting similar users:', error)
+    return { users: [], next: undefined }
+  }
+}
+
 export async function validateFrameRequest(req: NextRequest) {
   try {
     const body = await req.json()
@@ -415,7 +514,7 @@ export async function validateFrameRequest(req: NextRequest) {
       } : null
     }
   } catch (error) {
-    console.error('Error validating frame request:', error)
+    logger.error('Error validating frame request:', error)
     return { isValid: false, message: null }
   }
 }
