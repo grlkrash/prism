@@ -140,9 +140,9 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
     const tokenRecommendations = Array.isArray(agentResponse.recommendations) ? 
       agentResponse.recommendations.map(rec => ({
         id: crypto.randomUUID(),
-        name: rec.name,
-        symbol: rec.symbol,
-        description: rec.description,
+        name: rec.name || 'Unknown Token',
+        symbol: rec.symbol || 'TOKEN',
+        description: rec.description || 'No description available',
         culturalScore: rec.culturalScore || Math.floor(Math.random() * 100),
         category: rec.category || 'art',
         tags: rec.tags || ['art', 'culture']
@@ -151,9 +151,9 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
     // Process actions to ensure they have all required fields
     const actions = Array.isArray(agentResponse.actions) ?
       agentResponse.actions.map(action => ({
-        type: action.type,
-        tokenId: action.tokenId,
-        label: action.label
+        type: action.type || 'view',
+        tokenId: action.tokenId || crypto.randomUUID(),
+        label: action.label || 'View Details'
       })) : []
 
     // Ensure we have a valid response object
