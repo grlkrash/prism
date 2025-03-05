@@ -15,6 +15,7 @@ import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { ChatPromptTemplate } from "@langchain/core/prompts"
 import { createStructuredOutputChainFromZod } from "langchain/chains/openai_functions"
+import { JsonOutputFunctionsParser } from "@langchain/core/output_parsers"
 
 export const AGENTKIT_CONFIG = {
   API_URL: process.env.AGENTKIT_API_URL || 'https://api.agentkit.coinbase.com',
@@ -82,6 +83,9 @@ const llm = new ChatOpenAI({
   temperature: AGENTKIT_CONFIG.TEMPERATURE,
   maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
   openAIApiKey: process.env.OPENAI_API_KEY,
+  modelKwargs: {
+    response_format: { type: "json_object" }
+  }
 })
 
 let agentInstance: any = null
@@ -94,14 +98,14 @@ export async function getAgent() {
       ["human", "{input}"]
     ])
 
-    const chain = await createStructuredOutputChainFromZod(z.object({
-      response: z.string(),
-      actions: z.array(z.string()).optional()
-    }), {
-      llm: llm.bind(tools),
-      prompt
+    const outputParser = new JsonOutputFunctionsParser({
+      argsSchema: z.object({
+        response: z.string(),
+        actions: z.array(z.string()).optional()
+      })
     })
 
+    const chain = prompt.pipe(llm).pipe(outputParser)
     agentInstance = chain
   }
   return agentInstance

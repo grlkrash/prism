@@ -17,9 +17,7 @@ import { HumanMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
 import { ChatOpenAI } from "@langchain/openai"
 import { AgentExecutor } from "@langchain/core/agents"
-import { agentInstance } from '@/config/agentkit'
-import { getAgent } from '@/config/agentkit'
-import { RateLimitError } from '@/utils/errors'
+import { createReactAgent } from "@langchain/langgraph/prebuilt"
 
 class AgentkitError extends Error {
   constructor(message: string, public status?: number, public code?: string) {
@@ -52,48 +50,95 @@ function checkRateLimit(userId: string): boolean {
 }
 
 // Initialize LangChain tools
-const tools = []
+let agentInstance: any = null
+const memory = new MemorySaver()
 
-// Initialize the model
-const llm = new ChatOpenAI({
-  model: AGENTKIT_CONFIG.MODEL,
-  temperature: AGENTKIT_CONFIG.TEMPERATURE,
-  maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
-})
+async function initializeAgent() {
+  try {
+    // Initialize LLM
+    const llm = new ChatOpenAI({
+      modelName: AGENTKIT_CONFIG.MODEL,
+      temperature: AGENTKIT_CONFIG.TEMPERATURE,
+      maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
+    })
 
-export async function sendMessage(request: unknown): Promise<AgentResponse> {
+    // Configure CDP Wallet Provider
+    const config = {
+      apiKeyName: process.env.CDP_API_KEY_NAME,
+      apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+      networkId: process.env.NETWORK_ID || "base-sepolia",
+    }
+
+    const walletProvider = await CdpWalletProvider.configureWithWallet(config)
+
+    // Initialize AgentKit
+    const agentkit = await AgentKit.from({
+      walletProvider,
+      actionProviders: [
+        wethActionProvider(),
+        pythActionProvider(),
+        walletActionProvider(),
+        erc20ActionProvider(),
+        cdpApiActionProvider(config),
+        cdpWalletActionProvider(config),
+      ],
+    })
+
+    const tools = await getLangChainTools(agentkit)
+
+    // Create React Agent
+    const agent = createReactAgent({
+      llm,
+      tools,
+      checkpointSaver: memory,
+      messageModifier: AGENTKIT_CONFIG.SYSTEM_PROMPT
+    })
+
+    return agent
+  } catch (error) {
+    logger.error('Failed to initialize agent:', error)
+    throw error
+  }
+}
+
+export async function getAgent() {
+  if (!agentInstance) {
+    agentInstance = await initializeAgent()
+  }
+  return agentInstance
+}
+
+export async function sendMessage(request: unknown): Promise<any> {
   try {
     // Validate request
     const { message, userId } = z.object({
       message: z.string(),
-      userId: z.string()
+      userId: z.string().optional(),
+      context: z.record(z.any()).optional()
     }).parse(request)
 
     // Check rate limit
-    if (!checkRateLimit(userId)) {
+    if (!checkRateLimit(userId || '')) {
       throw new RateLimitError('Rate limit exceeded')
     }
 
     // Get agent instance
     const agent = await getAgent()
     
-    // Call agent
+    // Call agent with message
     const result = await agent.invoke({
-      input: message
+      messages: [new HumanMessage(message)]
     })
 
     // Format response
     return {
       id: crypto.randomUUID(),
-      content: result.response,
+      content: result.output,
       role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
-        actions: result.actions?.map(action => ({
-          type: 'analyze',
-          tokenId: action,
-          label: 'Analyze Token'
-        }))
+        tokenRecommendations: extractTokenRecommendations(result.output),
+        actions: extractActions(result.output)
       }
     }
 
