@@ -88,30 +88,30 @@ export async function getAgent() {
 
     const chain = {
       invoke: async ({ messages, configurable }: { messages: any[], configurable?: any }) => {
-        // Ensure thread_id is present
-        const config = {
-          ...configurable,
-          thread_id: configurable?.thread_id || `grlkrash-agent-${crypto.randomUUID()}`
-        }
-
+        // Generate thread ID if not provided
+        const threadId = configurable?.thread_id || `grlkrash-agent-${crypto.randomUUID()}`
+        
         try {
           const formattedMessages = await prompt.formatMessages({
             input: messages[messages.length - 1].content
           })
           
-          const response = await llm.invoke(formattedMessages, { configurable: config })
+          const response = await llm.invoke(formattedMessages, {
+            configurable: {
+              thread_id: threadId
+            }
+          })
           
-          // Ensure response content is a string
-          const content = typeof response.content === 'object' 
-            ? JSON.stringify(response.content)
-            : String(response.content)
-
           return { 
             messages: [{ 
-              content,
+              content: typeof response.content === 'object' 
+                ? JSON.stringify(response.content)
+                : String(response.content),
               role: 'assistant'
             }],
-            configurable: config // Pass thread_id back
+            configurable: {
+              thread_id: threadId
+            }
           }
         } catch (error) {
           console.error('Error in agent chain:', error)

@@ -1,5 +1,13 @@
+import { AGENTKIT_CONFIG, AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, actionProviders } from '@/config/agentkit'
+import { logger } from './logger'
+import { analyzeToken } from './mbdAi'
+import { getLangChainTools } from "@coinbase/agentkit-langchain"
+import { HumanMessage } from "@langchain/core/messages"
+import { MemorySaver } from "@langchain/langgraph"
+import { createReactAgent } from "@langchain/langgraph/prebuilt"
+import { ChatOpenAI } from "@langchain/openai"
+import { AgentKit } from "@coinbase/agentkit-langchain"
 import { z } from 'zod'
-import { AGENTKIT_CONFIG, AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema } from '@/config/agentkit'
 
 class AgentkitError extends Error {
   constructor(message: string, public status?: number, public code?: string) {
@@ -8,10 +16,11 @@ class AgentkitError extends Error {
   }
 }
 
-class RateLimitError extends Error {
+class RateLimitError extends AgentkitError {
   constructor(message: string) {
     super(message)
     this.name = 'RateLimitError'
+    this.code = 'RATE_LIMIT_EXCEEDED'
   }
 }
 
@@ -38,13 +47,30 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
+// Initialize LangChain tools
+const tools = getLangChainTools(actionProviders as unknown as AgentKit)
+
+// Initialize the agent
+const llm = new ChatOpenAI({
+  model: AGENTKIT_CONFIG.MODEL,
+  temperature: AGENTKIT_CONFIG.TEMPERATURE,
+  maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
+})
+
+const agent = createReactAgent({
+  llm,
+  tools,
+  systemPrompt: AGENTKIT_CONFIG.SYSTEM_PROMPT,
+})
+
 export async function sendMessage(request: unknown): Promise<AgentResponse> {
   try {
     // Validate request
-    const { message, userId, context } = z.object({
+    const { message, userId, context, threadId } = z.object({
       message: z.string(),
       userId: z.string().optional(),
-      context: z.record(z.any()).optional()
+      context: z.record(z.any()).optional(),
+      threadId: z.string().optional()
     }).parse(request)
 
     // Check rate limit
@@ -58,7 +84,7 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ message, userId, context })
+      body: JSON.stringify({ message, userId, context, threadId })
     })
 
     if (!response.ok) {
@@ -82,106 +108,10 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
   }
 }
 
-interface TokenRecommendation {
-  id: string
-  name: string
-  symbol: string
-  description: string
-  imageUrl: string
-  price: string
-  culturalScore: number
-  tokenType: 'ERC20'
-}
-
-export function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
-  try {
-    if (!content) return []
-    
-    // Ensure content is a string
-    const contentStr = typeof content === 'object' 
-      ? JSON.stringify(content)
-      : String(content)
-    
-    // Try parsing as JSON first
-    try {
-      const parsed = JSON.parse(contentStr)
-      if (Array.isArray(parsed?.recommendations)) {
-        return parsed.recommendations.map((rec: any) => ({
-          id: crypto.randomUUID(),
-          name: rec.name || 'Unknown Token',
-          symbol: rec.symbol || 'UNKNOWN',
-          description: rec.description || '',
-          imageUrl: rec.imageUrl || '',
-          price: rec.price || '0',
-          culturalScore: rec.culturalScore || Math.floor(Math.random() * 100),
-          tokenType: 'ERC20'
-        }))
-      }
-    } catch {}
-    
-    // Try extracting from text format
-    const recommendationsMatch = contentStr.match(/Token Recommendations:([\s\S]*?)(?=Actions:|$)/)
-    if (!recommendationsMatch) return []
-    
-    const recommendations = recommendationsMatch[1]
-      .trim()
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        const match = line.match(/\d+\.\s+([^($]+)\s+\((\$[^)]+)\):\s+(.+)/)
-        if (!match) return null
-        
-        const [_, name, symbol, description] = match
-        return {
-          id: crypto.randomUUID(),
-          name: name.trim(),
-          symbol: symbol.replace('$', '').trim(),
-          description: description.trim(),
-          imageUrl: '',
-          price: '0',
-          culturalScore: Math.floor(Math.random() * 100),
-          tokenType: 'ERC20' as const
-        }
-      })
-      .filter((rec): rec is TokenRecommendation => rec !== null)
-    
-    return recommendations
-  } catch (error) {
-    console.error('Error extracting recommendations:', error)
-    return []
-  }
-}
-
-export function extractActions(content: unknown): { type: string, tokenId: string, label: string }[] {
-  try {
-    if (!content) return []
-    
-    const contentStr = typeof content === 'object' 
-      ? JSON.stringify(content)
-      : String(content)
-    
-    const actionsMatch = contentStr.match(/Actions:([\s\S]*?)$/)
-    if (!actionsMatch) return []
-    
-    return actionsMatch[1]
-      .trim()
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        const [type, tokenId, label] = line.split('|')
-        return { type, tokenId, label }
-      })
-      .filter(action => action.type && action.tokenId && action.label)
-  } catch (error) {
-    console.error('Error extracting actions:', error)
-    return []
-  }
-}
-
 export async function getTokenRecommendations(userId: string, preferences?: {
   interests?: string[]
   priceRange?: { min?: number; max?: number }
-}): Promise<z.infer<typeof agentResponseSchema>> {
+}, farcasterClient?: any): Promise<AgentResponse> {
   // Ensure priceRange has both min and max values
   const normalizedPreferences = preferences ? {
     ...preferences,
@@ -195,12 +125,16 @@ export async function getTokenRecommendations(userId: string, preferences?: {
     message: 'Please recommend some cultural tokens based on my preferences and Farcaster trends.',
     userId,
     context: {
-      userPreferences: normalizedPreferences
+      userPreferences: normalizedPreferences,
+      farcasterContext: farcasterClient ? {
+        client: farcasterClient,
+        userFid: userId
+      } : undefined
     }
   })
 }
 
-export async function analyzeTokenWithAgent(tokenId: string, userId: string): Promise<z.infer<typeof agentResponseSchema>> {
+export async function analyzeTokenWithAgent(tokenId: string, userId: string, farcasterClient?: any): Promise<AgentResponse> {
   return sendMessage({
     message: `Please analyze this token and provide insights, including Farcaster sentiment: ${tokenId}`,
     userId,
@@ -211,7 +145,11 @@ export async function analyzeTokenWithAgent(tokenId: string, userId: string): Pr
         description: 'Token Description',
         imageUrl: 'https://example.com/token.jpg',
         price: '0.1 ETH'
-      }
+      },
+      farcasterContext: farcasterClient ? {
+        client: farcasterClient,
+        userFid: userId
+      } : undefined
     }
   })
 } 

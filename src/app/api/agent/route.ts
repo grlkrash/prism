@@ -10,8 +10,8 @@ const openai = new OpenAI({
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, userId, context } = await req.json();
-    const threadId = `grlkrash-agent-${crypto.randomUUID()}`;
+    const { message, userId, context, threadId } = await req.json();
+    const currentThreadId = threadId || `grlkrash-agent-${crypto.randomUUID()}`;
 
     // Call OpenAI API
     const completion = await openai.chat.completions.create({
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     const actions = extractActions(content);
 
     return NextResponse.json({
-      id: threadId,
+      id: currentThreadId,
       content,
       role: 'assistant',
       timestamp: new Date().toISOString(),

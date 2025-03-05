@@ -24,6 +24,10 @@ function generateFrameHtml({
     { label: 'Get Recommendations', action: 'recommend' }
   ]
 
+  const description = token 
+    ? `${token.description}\n\nCultural Score: ${token.culturalScore}/100` 
+    : 'Discover and collect cultural tokens'
+
   return `<!DOCTYPE html>
 <html>
   <head>
@@ -33,9 +37,9 @@ function generateFrameHtml({
     ${buttons.map((btn, i) => `
     <meta property="fc:frame:button:${i + 1}" content="${btn.label}" />
     `).join('')}
-    <meta property="og:title" content="${token ? token.name : 'Prism: Cultural Tokens'}" />
+    <meta property="og:title" content="${token ? `${token.name} ($${token.symbol})` : 'Prism: Cultural Tokens'}" />
     <meta property="og:image" content="${imageUrl}" />
-    <meta property="og:description" content="${token ? token.description : 'Discover and collect cultural tokens'}" />
+    <meta property="og:description" content="${description}" />
   </head>
 </html>`
 }
@@ -119,7 +123,10 @@ export async function POST(req: NextRequest) {
     if (currentToken) {
       const tokenWithStringId = {
         ...currentToken,
-        id: String(currentToken.id)
+        id: String(currentToken.id),
+        artistName: currentToken.artistName || 'Unknown Artist',
+        culturalScore: currentToken.culturalScore || 0,
+        tokenType: 'ERC20' as const
       }
       currentToken = await analyzeToken(tokenWithStringId)
     }
