@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { logger } from './logger'
-import { MBD_AI_CONFIG } from '@/config/mbdAi'
+import { MBD_AI_CONFIG, isTestMode } from '@/config/mbdAi'
 
 // Remove direct API key access since we're using the proxy
 const API_URL = '/api/mbd'
@@ -505,13 +505,17 @@ export async function getTrendingFeed(cursor?: string) {
 
     if (cursor) {
       params.append('cursor', cursor)
-      console.log('[MBD AI] Added cursor:', cursor)
     }
 
     const requestUrl = `/api/mbd?${params.toString()}`
     console.log('[MBD AI] Making request to:', requestUrl)
 
-    const response = await fetch(requestUrl)
+    const response = await fetch(requestUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    })
 
     if (!response.ok) {
       const errorData = await response.json()
@@ -520,6 +524,26 @@ export async function getTrendingFeed(cursor?: string) {
         statusText: response.statusText,
         error: errorData
       })
+
+      // If we're in development or test mode, return mock data
+      if (process.env.NODE_ENV === 'development' || isTestMode) {
+        console.log('[MBD AI] Using mock data due to API error')
+        return {
+          casts: tokenDatabase.map(token => ({
+            hash: `mock-${token.id}`,
+            text: `${token.name} - ${token.description}`,
+            author: {
+              fid: 1,
+              username: token.artistName,
+              displayName: token.artistName
+            },
+            timestamp: new Date().toISOString(),
+            reactions: { likes: 0, recasts: 0 },
+            metadata: token.metadata
+          }))
+        }
+      }
+
       throw new Error(`Failed to fetch trending feed: ${response.status} - ${JSON.stringify(errorData)}`)
     }
 
@@ -538,6 +562,26 @@ export async function getTrendingFeed(cursor?: string) {
     return result.data
   } catch (error) {
     console.error('[MBD AI] Error in getTrendingFeed:', error)
+    
+    // If we're in development or test mode, return mock data
+    if (process.env.NODE_ENV === 'development' || isTestMode) {
+      console.log('[MBD AI] Using mock data due to error')
+      return {
+        casts: tokenDatabase.map(token => ({
+          hash: `mock-${token.id}`,
+          text: `${token.name} - ${token.description}`,
+          author: {
+            fid: 1,
+            username: token.artistName,
+            displayName: token.artistName
+          },
+          timestamp: new Date().toISOString(),
+          reactions: { likes: 0, recasts: 0 },
+          metadata: token.metadata
+        }))
+      }
+    }
+    
     throw error
   }
 }
