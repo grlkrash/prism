@@ -1,3 +1,5 @@
+'use client'
+
 import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   useAccount,
@@ -11,12 +13,13 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { sendMessage } from '@/utils/agentkit'
 import { getTrendingFeed, analyzeToken, type Cast as MbdCast } from '@/utils/mbdAi'
 import type { TokenItem } from '@/types/token'
-import sdk from '@farcaster/frame-sdk'
+import sdk, { type FrameContext } from '@farcaster/frame-sdk'
 import CuratorLeaderboard from '@/components/SocialFi'
 import { TokenGallery } from '@/components/TokenGallery'
 import { AgentChat } from '@/components/agent/agent-chat'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
+import { logger } from '@/utils/logger'
 
 // Use the SDK's FrameContext type
 type UserContext = {
@@ -106,7 +109,7 @@ export default function Demo() {
   const config = useConfig()
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [context, setContext] = useState<UserContext | null>(null)
+  const [context, setContext] = useState<FrameContext>()
   const [ethAmount, setEthAmount] = useState<string>('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isContextOpen, setIsContextOpen] = useState(false)
@@ -130,33 +133,28 @@ export default function Demo() {
     isPending: isSendTxPending,
   } = useSendTransaction()
 
-  // Load SDK and initial data
   useEffect(() => {
-    const load = async () => {
+    const initializeFrame = async () => {
       try {
-        if (!sdk) throw new Error('SDK not loaded')
+        // Wait for SDK to be ready
         await new Promise(resolve => setTimeout(resolve, 100))
         
+        // Get context first
         const ctx = await sdk.context
-        setContext(ctx?.user || null)
-        sdk.actions.ready()
+        setContext(ctx)
+        logger.info('Frame context loaded:', ctx)
 
-        // Only load initial data if we have a valid FID
-        if (ctx?.user?.fid) {
-          await loadInitialData(ctx.user.fid)
-        } else {
-          // Load anonymous data
-          await loadInitialData()
-        }
+        // Signal ready to Warpcast
+        await sdk.actions.ready()
+        logger.info('Frame ready signal sent')
         
         setIsSDKLoaded(true)
-      } catch (err) {
-        console.error('Failed to initialize:', err)
-        setError(err instanceof Error ? err.message : 'Failed to initialize')
-        setIsSDKLoaded(true)
+      } catch (error) {
+        logger.error('Error initializing frame:', error)
       }
     }
-    load()
+
+    initializeFrame()
   }, [])
 
   // Load initial data using agent
@@ -621,78 +619,20 @@ export default function Demo() {
 
   if (!isSDKLoaded) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <LoadingSpinner />
+      <div className="w-[300px] mx-auto py-4 px-2">
+        <h1 className="text-2xl font-bold text-center mb-4">Loading Frame...</h1>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto p-4 space-y-6">
-      {/* Context Display */}
-      <div className="flex justify-between items-center">
-        <Button onClick={toggleContext} variant="outline">
-          {isContextOpen ? 'Hide Context' : 'Show Context'}
-        </Button>
-        {isConnected ? (
-          <Button onClick={() => disconnect()}>Disconnect</Button>
-        ) : null}
+    <div className="w-[300px] mx-auto py-4 px-2">
+      <h1 className="text-2xl font-bold text-center mb-4">Prism: Cultural Tokens</h1>
+      <div className="mb-4">
+        <pre className="text-xs overflow-auto">
+          {JSON.stringify(context, null, 2)}
+        </pre>
       </div>
-
-      {isContextOpen && context && (
-        <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
-          <pre className="whitespace-pre-wrap">
-            {JSON.stringify(context, null, 2)}
-          </pre>
-        </div>
-      )}
-
-      {error && (
-        <div className="text-red-500 text-center p-4">
-          {error}
-        </div>
-      )}
-
-      {/* Main Content */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 mb-4">
-          <TabsTrigger value="feed">Feed</TabsTrigger>
-          <TabsTrigger value="curator">Curator</TabsTrigger>
-          <TabsTrigger value="friends">Friends</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="feed" className="space-y-4">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <LoadingSpinner />
-            </div>
-          ) : (
-            <TokenGallery 
-              tokens={tokens}
-              isLoading={isLoading}
-              hasMore={hasMore}
-              onLoadMore={loadMoreTokens}
-            />
-          )}
-        </TabsContent>
-
-        <TabsContent value="curator">
-          <CuratorLeaderboard 
-            userId={context?.fid?.toString()} 
-            onCollect={(tokenId) => handleBuy(tokens.find(t => t.id === tokenId)!)}
-          />
-        </TabsContent>
-
-        <TabsContent value="friends">
-          <TokenGallery 
-            userId={context?.fid?.toString()}
-            tokens={tokens.filter(t => t.metadata?.authorFid === context?.fid?.toString())}
-            isLoading={isLoading}
-            hasMore={false}
-            onLoadMore={async () => {}}
-          />
-        </TabsContent>
-      </Tabs>
     </div>
   )
 } 
