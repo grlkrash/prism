@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/utils/logger'
 import { NobleEd25519Signer } from "@farcaster/hub-nodejs"
+import { validateFrameRequest } from '@/utils/mbdAi'
 
 const WARPCAST_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL
 
@@ -42,11 +43,13 @@ async function generateAuthToken() {
   }
 }
 
-export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url)
-    const fid = searchParams.get('fid')
+export const dynamic = 'force-dynamic'
 
+export async function GET(req: NextRequest) {
+  try {
+    const searchParams = req.nextUrl.searchParams
+    const fid = searchParams.get('fid')
+    
     if (!fid) {
       return NextResponse.json({ error: 'Missing fid parameter' }, { status: 400 })
     }
@@ -67,9 +70,28 @@ export async function GET(request: Request) {
     const data = await response.json()
     return NextResponse.json(data)
   } catch (error) {
-    logger.error('Error in /api/farcaster/following:', error)
+    logger.error('Error in following route:', error)
     return NextResponse.json(
-      { error: 'Failed to fetch following data' },
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const validation = await validateFrameRequest(req)
+    if (!validation.isValid) {
+      return NextResponse.json({ error: 'Invalid frame request' }, { status: 400 })
+    }
+
+    const { message } = validation
+    // Your existing logic here...
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error in following route:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

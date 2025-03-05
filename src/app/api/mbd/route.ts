@@ -1,157 +1,82 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { logger } from '@/utils/logger'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url)
-    const endpoint = searchParams.get('endpoint')
-    const params = searchParams.get('params')
-    
+    const endpoint = req.nextUrl.searchParams.get('endpoint')
     if (!endpoint) {
-      return new NextResponse(
-        JSON.stringify({ error: 'Missing endpoint parameter' }),
-        { 
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      )
+      return NextResponse.json({ error: 'Missing endpoint parameter' }, { status: 400 })
     }
 
-    let headers
-    try {
-      headers = MBD_AI_CONFIG.getHeaders()
-    } catch (error) {
-      logger.error('Error getting MBD headers:', error)
-      return new NextResponse(
-        JSON.stringify({ 
-          error: error instanceof Error ? error.message : 'Failed to configure MBD API'
-        }),
-        { 
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      )
-    }
+    const url = new URL(endpoint, MBD_AI_CONFIG.API_URL)
+    const cursor = req.nextUrl.searchParams.get('cursor')
+    if (cursor) url.searchParams.set('cursor', cursor)
 
-    const url = new URL(`${MBD_AI_CONFIG.API_URL}${endpoint}`)
-    
-    // Add parameters if they exist
-    if (params) {
-      try {
-        const parsedParams = JSON.parse(params)
-        Object.entries(parsedParams).forEach(([key, value]) => {
-          if (value !== undefined) {
-            url.searchParams.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
-          }
-        })
-      } catch (e) {
-        logger.error('Error parsing params:', e)
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
       }
-    }
-
-    const response = await fetch(url.toString(), { 
-      headers,
-      next: { revalidate: 60 } // Cache for 1 minute
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: response.statusText }))
-      throw new Error(`MBD API error: ${errorData.message || response.statusText}`)
+      console.error('[MBD API] Error response:', {
+        status: response.status,
+        statusText: response.statusText
+      })
+      return NextResponse.json(
+        { error: `API request failed: ${response.statusText}` },
+        { status: response.status }
+      )
     }
 
     const data = await response.json()
-    return new NextResponse(JSON.stringify(data), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30'
-      }
-    })
+    return NextResponse.json(data)
   } catch (error) {
-    logger.error('Error in MBD route:', error)
-    return new NextResponse(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Failed to fetch from MBD API'
-      }),
-      { 
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
+    console.error('[MBD API] Error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
     )
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url)
-    const endpoint = searchParams.get('endpoint')
-    
+    const { endpoint, body } = await req.json()
     if (!endpoint) {
-      return new NextResponse(
-        JSON.stringify({ error: 'Missing endpoint parameter' }),
-        { 
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      )
+      return NextResponse.json({ error: 'Missing endpoint parameter' }, { status: 400 })
     }
 
-    const body = await req.json()
-    let headers
-    try {
-      headers = MBD_AI_CONFIG.getHeaders()
-    } catch (error) {
-      logger.error('Error getting MBD headers:', error)
-      return new NextResponse(
-        JSON.stringify({ 
-          error: error instanceof Error ? error.message : 'Failed to configure MBD API'
-        }),
-        { 
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      )
-    }
-    
-    const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, {
+    const url = new URL(endpoint, MBD_AI_CONFIG.API_URL)
+    const response = await fetch(url.toString(), {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
+      },
       body: JSON.stringify(body)
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: response.statusText }))
-      throw new Error(`MBD API error: ${errorData.message || response.statusText}`)
+      console.error('[MBD API] Error response:', {
+        status: response.status,
+        statusText: response.statusText
+      })
+      return NextResponse.json(
+        { error: `API request failed: ${response.statusText}` },
+        { status: response.status }
+      )
     }
 
     const data = await response.json()
-    return new NextResponse(JSON.stringify(data), {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
+    return NextResponse.json(data)
   } catch (error) {
-    logger.error('Error in MBD route:', error)
-    return new NextResponse(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Failed to fetch from MBD API'
-      }),
-      { 
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
+    console.error('[MBD API] Error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
     )
   }
 } 

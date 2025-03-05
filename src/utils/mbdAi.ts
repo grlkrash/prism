@@ -515,21 +515,15 @@ export async function getTrendingFeed(cursor?: string) {
     throw new Error('MBD API key not found')
   }
 
-  console.log('[MBD AI] Making request with API key:', process.env.NEXT_PUBLIC_MBD_API_KEY.substring(0, 8) + '...')
-
-  const url = new URL(MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING, MBD_AI_CONFIG.API_URL)
-  if (cursor) url.searchParams.set('cursor', cursor)
-
-  console.log('[MBD AI] Requesting URL:', url.toString())
+  console.log('[MBD AI] Making request to local API route')
 
   try {
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        ...MBD_AI_CONFIG.getHeaders(),
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
-      }
+    const params = new URLSearchParams({
+      endpoint: MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING
     })
+    if (cursor) params.set('cursor', cursor)
+
+    const response = await fetch(`/api/mbd?${params.toString()}`)
 
     if (!response.ok) {
       const errorText = await response.text()

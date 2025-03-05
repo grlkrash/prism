@@ -162,12 +162,14 @@ export default function Demo() {
   // Load initial data using agent
   const loadInitialData = async (fid?: number) => {
     setIsLoading(true)
+    setError(null) // Reset error state
     try {
       // Try to get recommendations first using the AI agent
       let hasData = false
       
       if (fid) {
         try {
+          console.log('[Demo] Fetching recommendations for FID:', fid)
           const response = await sendMessage({
             message: 'Please recommend some trending cultural tokens based on Farcaster activity and cultural relevance',
             userId: fid.toString(),
@@ -185,96 +187,101 @@ export default function Demo() {
           if (response.metadata?.tokenRecommendations) {
             setTokens(response.metadata.tokenRecommendations)
             hasData = true
+            console.log('[Demo] Got recommendations:', response.metadata.tokenRecommendations)
           }
         } catch (e) {
-          console.error('Failed to get recommendations:', e)
+          console.error('[Demo] Failed to get recommendations:', e)
+          // Don't throw here, let it fall back to trending feed
         }
       }
 
       // Fallback to trending feed if no recommendations
       if (!hasData) {
-        const trendingFeed = await getTrendingFeed()
-        if (trendingFeed.casts) {
-          const newTokens = await Promise.all(trendingFeed.casts.map(async (cast: MbdCast) => {
-            // Extract token info
-            const token: TokenItem = {
-              id: cast.hash,
-              name: cast.text.split('\n')[0] || 'Untitled Token',
-              symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
-              description: cast.text,
-              price: 0.001,
-              image: cast.author.pfp,
-              category: cast.aiAnalysis?.category || 'unknown',
-              social: {
-                website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
-              },
-              metadata: {
-                authorFid: String(cast.author.fid),
-                authorUsername: cast.author.username,
-                timestamp: Number(cast.timestamp),
-                likes: cast.reactions.likes,
-                recasts: cast.reactions.recasts,
-                category: cast.aiAnalysis?.category,
-                tags: cast.labels,
-                sentiment: cast.aiAnalysis?.sentiment,
-                popularity: cast.aiAnalysis?.popularity,
-                aiScore: cast.aiAnalysis?.aiScore,
-                isCulturalToken: cast.aiAnalysis?.hasCulturalElements || false,
-                artStyle: cast.aiAnalysis?.artStyle,
-                culturalContext: cast.aiAnalysis?.culturalContext
-              }
-            }
+        console.log('[Demo] Fetching trending feed')
+        try {
+          const trendingFeed = await getTrendingFeed()
+          console.log('[Demo] Got trending feed:', trendingFeed)
+          
+          if (!trendingFeed?.casts) {
+            throw new Error('Invalid trending feed response')
+          }
 
-            // Use the agent to analyze cultural relevance
-            try {
-              const analysis = await sendMessage({
-                message: `Please analyze this token for cultural relevance: ${token.name} (${token.symbol}) - ${token.description}`,
-                userId: fid?.toString(),
-                context: { currentToken: token }
-              })
-
-              if (analysis.metadata?.tokenRecommendations?.[0]) {
-                const recommendation = analysis.metadata.tokenRecommendations[0]
-                return {
-                  ...token,
-                  culturalScore: recommendation.culturalScore,
+          const processedTokens = await Promise.all(
+            trendingFeed.casts.map(async (cast: MbdCast) => {
+              try {
+                // Extract token info
+                const token: TokenItem = {
+                  id: cast.hash,
+                  name: cast.text.split('\n')[0] || 'Untitled Token',
+                  symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+                  description: cast.text,
+                  price: 0.001,
+                  image: cast.author.pfp,
+                  category: cast.aiAnalysis?.category || 'unknown',
+                  social: {
+                    website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+                  },
                   metadata: {
-                    ...token.metadata,
-                    ...recommendation.metadata
+                    authorFid: String(cast.author.fid),
+                    authorUsername: cast.author.username,
+                    timestamp: Number(cast.timestamp),
+                    likes: cast.reactions.likes,
+                    recasts: cast.reactions.recasts,
+                    category: cast.aiAnalysis?.category,
+                    tags: cast.labels,
+                    sentiment: cast.aiAnalysis?.sentiment,
+                    popularity: cast.aiAnalysis?.popularity,
+                    aiScore: cast.aiAnalysis?.aiScore,
+                    isCulturalToken: cast.aiAnalysis?.hasCulturalElements || false,
+                    artStyle: cast.aiAnalysis?.artStyle,
+                    culturalContext: cast.aiAnalysis?.culturalContext
                   }
                 }
+
+                // Use the agent to analyze cultural relevance
+                try {
+                  const analysis = await sendMessage({
+                    message: `Please analyze this token for cultural relevance: ${token.name} (${token.symbol}) - ${token.description}`,
+                    userId: fid?.toString(),
+                    context: { currentToken: token }
+                  })
+
+                  if (analysis.metadata?.tokenRecommendations?.[0]) {
+                    const recommendation = analysis.metadata.tokenRecommendations[0]
+                    return {
+                      ...token,
+                      culturalScore: recommendation.culturalScore,
+                      metadata: {
+                        ...token.metadata,
+                        ...recommendation.metadata
+                      }
+                    }
+                  }
+                } catch (analysisError) {
+                  console.error('[Demo] Token analysis error:', analysisError)
+                }
+                
+                return token
+              } catch (castError) {
+                console.error('[Demo] Error processing cast:', castError)
+                return null
               }
-            } catch (e) {
-              console.error('Failed to analyze token:', e)
-            }
+            })
+          )
 
-            return token
-          }))
-
-          // Filter tokens by cultural score and sort by relevance
-          const culturalTokens = newTokens
-            .filter(token => 
-              (token.culturalScore || 0) >= MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE ||
-              token.metadata?.isCulturalToken ||
-              MBD_AI_CONFIG.CULTURAL_TOKEN.INDICATORS.CONTENT.some((indicator: string) => 
-                token.category?.toLowerCase().includes(indicator.toLowerCase()) ||
-                token.metadata?.tags?.some((tag: string) => tag.toLowerCase().includes(indicator.toLowerCase()))
-              )
-            )
-            .sort((a: TokenItem, b: TokenItem) => (b.culturalScore || 0) - (a.culturalScore || 0))
-
-          setTokens(culturalTokens)
-        }
-        
-        if (trendingFeed.next?.cursor) {
-          setCursor(trendingFeed.next.cursor)
-          setHasMore(true)
+          const validTokens = processedTokens.filter((token): token is TokenItem => token !== null)
+          setTokens(validTokens)
+          setHasMore(!!trendingFeed.next)
+          setCursor(trendingFeed.next)
+        } catch (feedError) {
+          console.error('[Demo] Failed to fetch trending feed:', feedError)
+          throw feedError // Re-throw to be caught by outer try-catch
         }
       }
     } catch (error) {
-      console.error('Failed to load initial data:', error)
-      setError('Failed to load recommendations')
-      setTokens([]) // Set empty array to show error state
+      console.error('[Demo] Failed to load initial data:', error)
+      setError(error instanceof Error ? error.message : 'Failed to load initial data')
+      setTokens([]) // Reset tokens on error
     } finally {
       setIsLoading(false)
     }
