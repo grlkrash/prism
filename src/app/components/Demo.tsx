@@ -1,55 +1,35 @@
 import { useEffect, useState } from 'react'
-import sdk, { type FrameContext } from '@farcaster/frame-sdk'
+import sdk from '@farcaster/frame-sdk'
 
 export default function Demo() {
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
-  const [context, setContext] = useState<FrameContext>()
-  const [error, setError] = useState<string>()
+  const [error, setError] = useState<string | null>(null)
+  const [context, setContext] = useState<any>(null)
 
   useEffect(() => {
-    const load = async () => {
+    async function load() {
       try {
-        // Get context before calling ready
-        const ctx = await sdk.context
-        setContext(ctx)
+        const ctx = await sdk.context()
         await sdk.actions.ready()
+        setContext(ctx)
+        setIsSDKLoaded(true)
       } catch (err) {
-        console.error('Failed to initialize frame:', err)
-        setError(err instanceof Error ? err.message : 'Failed to initialize frame')
+        console.error('Failed to initialize SDK:', err)
+        setError(err instanceof Error ? err.message : 'Failed to initialize SDK')
       }
     }
+    load()
+  }, [])
 
-    if (!isSDKLoaded) {
-      setIsSDKLoaded(true)
-      load()
-    }
-  }, [isSDKLoaded])
-
-  if (error) {
-    return (
-      <div className="w-[300px] mx-auto py-4 px-2">
-        <p className="text-red-500">Error: {error}</p>
-      </div>
-    )
-  }
-
-  if (!isSDKLoaded || !context) {
-    return (
-      <div className="w-[300px] mx-auto py-4 px-2">
-        <p>Loading...</p>
-      </div>
-    )
-  }
+  if (error) return <div>Error: {error}</div>
+  if (!isSDKLoaded) return <div>Loading SDK...</div>
 
   return (
-    <div className="w-[300px] mx-auto py-4 px-2">
-      <h1 className="text-2xl font-bold text-center mb-4">Prism: Digital Dreams #1</h1>
-      <div className="text-sm mt-2">
-        <p>Frame Context:</p>
-        <pre className="bg-gray-100 p-2 mt-1 rounded text-xs">
-          {JSON.stringify(context, null, 2)}
-        </pre>
-      </div>
+    <div className="p-4">
+      <h1 className="text-2xl font-bold mb-4">Frame Demo</h1>
+      <pre className="bg-gray-100 p-4 rounded">
+        {JSON.stringify(context, null, 2)}
+      </pre>
     </div>
   )
 } 
