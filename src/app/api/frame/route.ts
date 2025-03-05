@@ -49,10 +49,11 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
     
-    // Get initial recommendations from agent
+    // Get initial recommendations from agent with thread_id
     const response = await sendMessage({
       message: 'Please recommend some trending cultural tokens based on Farcaster activity',
-      userId: 'initial-view'
+      userId: 'initial-view',
+      threadId: `grlkrash-frame-${crypto.randomUUID()}`
     })
 
     const token = response.metadata?.tokenRecommendations?.[0]
@@ -88,10 +89,11 @@ export async function POST(req: NextRequest) {
     
     const { button, fid } = message
     
-    // Get recommendations from agent
+    // Get recommendations from agent with thread_id
     const response = await sendMessage({
       message: 'Please recommend some trending cultural tokens based on Farcaster activity',
       userId: fid ? String(fid) : 'anonymous',
+      threadId: `grlkrash-frame-${crypto.randomUUID()}`,
       context: {
         farcasterContext: { userFid: fid ? String(fid) : undefined }
       }

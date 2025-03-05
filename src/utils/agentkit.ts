@@ -1,139 +1,88 @@
-import { z } from 'zod'
-import { AGENTKIT_CONFIG, AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema } from '@/config/agentkit'
+import { AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, getAgent } from '@/config/agentkit'
+import { logger } from './logger'
+import { analyzeToken } from './mbdAi'
+import { HumanMessage } from "@langchain/core/messages"
 
-class AgentkitError extends Error {
-  constructor(message: string, public status?: number, public code?: string) {
+export class AgentkitError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, status: number = 500, code?: string) {
     super(message)
     this.name = 'AgentkitError'
+    this.status = status
+    this.code = code
   }
 }
 
-class RateLimitError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'RateLimitError'
-  }
-}
-
-// Rate limiting configuration
-const RATE_LIMIT = {
-  maxRequests: 100,
-  windowMs: 60 * 1000, // 1 minute
-  requests: new Map<string, number[]>()
-}
-
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now()
-  const userRequests = RATE_LIMIT.requests.get(userId) || []
-  
-  // Remove old requests
-  const recentRequests = userRequests.filter(time => now - time < RATE_LIMIT.windowMs)
-  
-  if (recentRequests.length >= RATE_LIMIT.maxRequests) {
-    return false
-  }
-  
-  recentRequests.push(now)
-  RATE_LIMIT.requests.set(userId, recentRequests)
-  return true
-}
-
-export async function sendMessage(request: unknown): Promise<AgentResponse> {
+export async function sendMessage(request: AgentRequest): Promise<AgentResponse> {
   try {
-    // Validate request
-    const { message, userId, context, threadId } = z.object({
-      message: z.string(),
-      userId: z.string().optional(),
-      context: z.record(z.any()).optional(),
-      threadId: z.string().optional()
-    }).parse(request)
+    const validatedRequest = agentRequestSchema.parse(request)
+    const agent = await getAgent()
 
-    // Check rate limit
-    if (userId && !checkRateLimit(userId)) {
-      throw new RateLimitError('Rate limit exceeded')
-    }
-
-    // Call OpenAI API directly
-    const response = await fetch('/api/agent', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ message, userId, context, threadId })
+    const response = await agent.invoke({
+      messages: [{ content: validatedRequest.message }],
+      configurable: {
+        thread_id: validatedRequest.threadId || `cultural-agent-${crypto.randomUUID()}`
+      }
     })
 
-    if (!response.ok) {
-      throw new Error('Failed to get response from agent')
+    const result: AgentResponse = {
+      id: crypto.randomUUID(),
+      content: response,
+      role: 'assistant',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        tokenRecommendations: await extractTokenRecommendations(response),
+        actions: extractActions(response)
+      }
     }
 
-    const result = await response.json()
     return agentResponseSchema.parse(result)
-
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new AgentkitError('Invalid request format', 400)
-    }
-    if (error instanceof RateLimitError) {
-      throw new AgentkitError('Rate limit exceeded', 429)
-    }
-    throw new AgentkitError(
-      error instanceof Error ? error.message : 'Internal server error',
-      500
-    )
+    logger.error('Error in sendMessage:', error)
+    throw new AgentkitError(error.message || 'Internal server error')
   }
 }
 
-interface TokenRecommendation {
-  id: string
-  name: string
-  symbol: string
-  description: string
-  imageUrl: string
-  price: string
-  culturalScore: number
-  tokenType: 'ERC20'
+function extractActions(content: string): Array<{ type: string; tokenId: string; label: string }> {
+  const actions: Array<{ type: string; tokenId: string; label: string }> = []
+  const lines = content.split('\n')
+  let inActionsSection = false
+
+  for (const line of lines) {
+    if (line.trim() === 'Actions:') {
+      inActionsSection = true
+      continue
+    }
+
+    if (inActionsSection && line.includes('|')) {
+      const [type, tokenId, label] = line.split('|')
+      if (type && tokenId && label) {
+        actions.push({ type: type.trim(), tokenId: tokenId.trim(), label: label.trim() })
+      }
+    }
+  }
+
+  return actions
 }
 
-export function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
-  try {
-    if (!content) return []
-    
-    // Ensure content is a string
-    const contentStr = typeof content === 'object' 
-      ? JSON.stringify(content)
-      : String(content)
-    
-    // Try parsing as JSON first
-    try {
-      const parsed = JSON.parse(contentStr)
-      if (Array.isArray(parsed?.recommendations)) {
-        return parsed.recommendations.map((rec: any) => ({
-          id: crypto.randomUUID(),
-          name: rec.name || 'Unknown Token',
-          symbol: rec.symbol || 'UNKNOWN',
-          description: rec.description || '',
-          imageUrl: rec.imageUrl || '',
-          price: rec.price || '0',
-          culturalScore: rec.culturalScore || Math.floor(Math.random() * 100),
-          tokenType: 'ERC20'
-        }))
-      }
-    } catch {}
-    
-    // Try extracting from text format
-    const recommendationsMatch = contentStr.match(/Token Recommendations:([\s\S]*?)(?=Actions:|$)/)
-    if (!recommendationsMatch) return []
-    
-    const recommendations = recommendationsMatch[1]
-      .trim()
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        const match = line.match(/\d+\.\s+([^($]+)\s+\((\$[^)]+)\):\s+(.+)/)
-        if (!match) return null
-        
-        const [_, name, symbol, description] = match
-        return {
+async function extractTokenRecommendations(content: string): Promise<any[]> {
+  const recommendations: any[] = []
+  const lines = content.split('\n')
+  let inRecommendationsSection = false
+
+  for (const line of lines) {
+    if (line.includes('Token Recommendations:')) {
+      inRecommendationsSection = true
+      continue
+    }
+
+    if (inRecommendationsSection && line.match(/^\d+\./)) {
+      const match = line.match(/(\d+)\.\s+([^(]+)\s+\((\$[^)]+)\):\s+(.+)/)
+      if (match) {
+        const [_, number, name, symbol, description] = match
+        const token = {
           id: crypto.randomUUID(),
           name: name.trim(),
           symbol: symbol.replace('$', '').trim(),
@@ -141,42 +90,21 @@ export function extractTokenRecommendations(content: unknown): TokenRecommendati
           imageUrl: '',
           price: '0',
           culturalScore: Math.floor(Math.random() * 100),
-          tokenType: 'ERC20' as const
+          tokenType: 'ERC20'
         }
-      })
-      .filter((rec): rec is TokenRecommendation => rec !== null)
-    
-    return recommendations
-  } catch (error) {
-    console.error('Error extracting recommendations:', error)
-    return []
+        
+        try {
+          const analyzedToken = await analyzeToken(token)
+          recommendations.push(analyzedToken)
+        } catch (error) {
+          logger.error('Error analyzing token:', { error, tokenId: token.id })
+          recommendations.push(token)
+        }
+      }
+    }
   }
-}
 
-export function extractActions(content: unknown): { type: string, tokenId: string, label: string }[] {
-  try {
-    if (!content) return []
-    
-    const contentStr = typeof content === 'object' 
-      ? JSON.stringify(content)
-      : String(content)
-    
-    const actionsMatch = contentStr.match(/Actions:([\s\S]*?)$/)
-    if (!actionsMatch) return []
-    
-    return actionsMatch[1]
-      .trim()
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        const [type, tokenId, label] = line.split('|')
-        return { type, tokenId, label }
-      })
-      .filter(action => action.type && action.tokenId && action.label)
-  } catch (error) {
-    console.error('Error extracting actions:', error)
-    return []
-  }
+  return recommendations
 }
 
 export async function getTokenRecommendations(userId: string, preferences?: {

@@ -1,50 +1,20 @@
 // app/api/agent/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { OpenAI } from 'openai';
-import { AGENTKIT_CONFIG } from '@/config/agentkit';
-import { extractTokenRecommendations, extractActions } from '@/utils/agentkit';
+import { getAgent } from '@/config/agentkit';
+import { extractTokenRecommendations, extractActions, sendMessage } from '@/utils/agentkit';
+import { logger } from '@/utils/logger';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const { message, userId, context, threadId } = await req.json();
-    const currentThreadId = threadId || `grlkrash-agent-${crypto.randomUUID()}`;
-
-    // Call OpenAI API
-    const completion = await openai.chat.completions.create({
-      model: AGENTKIT_CONFIG.MODEL,
-      temperature: AGENTKIT_CONFIG.TEMPERATURE,
-      max_tokens: AGENTKIT_CONFIG.MAX_TOKENS,
-      messages: [
-        { role: 'system', content: AGENTKIT_CONFIG.SYSTEM_PROMPT },
-        { role: 'user', content: message }
-      ]
-    });
-
-    const content = completion.choices[0]?.message?.content || '';
-    
-    // Extract recommendations and actions
-    const tokenRecommendations = extractTokenRecommendations(content);
-    const actions = extractActions(content);
-
-    return NextResponse.json({
-      id: currentThreadId,
-      content,
-      role: 'assistant',
-      timestamp: new Date().toISOString(),
-      metadata: {
-        tokenRecommendations,
-        actions
-      }
-    });
+    const body = await request.json();
+    const response = await sendMessage(body);
+    return NextResponse.json(response);
   } catch (error) {
-    console.error('Error in agent route:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    logger.error('Error in agent route:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { error: errorMessage },
+      { status: error instanceof Error && 'status' in error ? (error as any).status : 500 }
     );
   }
 }

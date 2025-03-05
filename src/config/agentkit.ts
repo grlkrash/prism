@@ -1,186 +1,72 @@
 import { z } from 'zod'
-import { ChatOpenAI } from "@langchain/openai"
-import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster'
-import { DynamicStructuredTool } from '@langchain/core/tools'
+import { chatModel } from './openai'
+import { SystemMessage, HumanMessage } from '@langchain/core/messages'
+import { RunnableSequence } from '@langchain/core/runnables'
 import { ChatPromptTemplate } from "@langchain/core/prompts"
-
-export const AGENTKIT_CONFIG = {
-  MODEL: 'gpt-4-turbo-preview',
-  TEMPERATURE: 0.7,
-  MAX_TOKENS: 1000,
-  SYSTEM_PROMPT: `You are an AI assistant that helps users discover and analyze cultural tokens on Base. Focus on ERC-20 tokens related to art, music, and culture.
-
-Your responses must follow this exact format:
-
-Token Recommendations:
-1. TokenName ($SYMBOL): Description
-2. TokenName ($SYMBOL): Description
-...
-
-Actions:
-view|SYMBOL|View Details
-buy|SYMBOL|Buy Now
-share|SYMBOL|Share Token
-...`
-}
-
-// Define agent output type
-export interface AgentOutput {
-  output: string
-  actions?: string[]
-}
-
-// Initialize tools
-const tools = [
-  new DynamicStructuredTool({
-    name: "searchCasts",
-    description: "Search Farcaster casts",
-    schema: z.object({
-      query: z.string(),
-      limit: z.number().optional()
-    }),
-    func: async ({ query, limit }) => {
-      return JSON.stringify(await searchCasts(query, limit))
-    }
-  }),
-  new DynamicStructuredTool({
-    name: "getUserProfile",
-    description: "Get Farcaster user profile",
-    schema: z.object({
-      fid: z.string()
-    }),
-    func: async ({ fid }) => {
-      return JSON.stringify(await getUserProfile(fid))
-    }
-  }),
-  new DynamicStructuredTool({
-    name: "getTokenMentions",
-    description: "Get token mentions from Farcaster",
-    schema: z.object({
-      tokenName: z.string(),
-      limit: z.number().optional()
-    }),
-    func: async ({ tokenName, limit }) => {
-      return JSON.stringify(await getTokenMentions(tokenName, limit))
-    }
-  })
-]
-
-// Initialize the model
-const llm = new ChatOpenAI({
-  modelName: AGENTKIT_CONFIG.MODEL,
-  temperature: AGENTKIT_CONFIG.TEMPERATURE,
-  maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
-  modelKwargs: {
-    response_format: { type: "text" }
-  }
-})
-
-let agentInstance: any = null
-
-// Create agent chain
-export async function getAgent() {
-  if (!agentInstance) {
-    const prompt = ChatPromptTemplate.fromMessages([
-      ["system", AGENTKIT_CONFIG.SYSTEM_PROMPT],
-      ["human", "{input}"]
-    ])
-
-    const chain = {
-      invoke: async ({ messages, configurable }: { messages: any[], configurable?: any }) => {
-        // Generate thread ID if not provided
-        const threadId = configurable?.thread_id || `grlkrash-agent-${crypto.randomUUID()}`
-        
-        try {
-          const formattedMessages = await prompt.formatMessages({
-            input: messages[messages.length - 1].content
-          })
-          
-          const response = await llm.invoke(formattedMessages, {
-            configurable: {
-              thread_id: threadId
-            }
-          })
-          
-          return { 
-            messages: [{ 
-              content: typeof response.content === 'object' 
-                ? JSON.stringify(response.content)
-                : String(response.content),
-              role: 'assistant'
-            }],
-            configurable: {
-              thread_id: threadId
-            }
-          }
-        } catch (error) {
-          console.error('Error in agent chain:', error)
-          throw error
-        }
-      }
-    }
-
-    agentInstance = chain
-  }
-  return agentInstance
-}
-
-export interface AgentRequest {
-  message: string
-  userId?: string
-  context?: Record<string, any>
-}
-
-export interface AgentResponse {
-  id: string
-  content: string
-  role: 'assistant'
-  timestamp: string
-  metadata?: {
-    tokenRecommendations?: Array<{
-      id: string
-      name: string
-      symbol: string
-      description: string
-      imageUrl: string
-      price: string
-      culturalScore: number
-      tokenType: 'ERC20'
-    }>
-    actions?: Array<{
-      type: string
-      tokenId: string
-      label: string
-    }>
-  }
-}
 
 export const agentRequestSchema = z.object({
   message: z.string(),
   userId: z.string().optional(),
-  context: z.record(z.any()).optional()
+  context: z.record(z.any()).optional(),
+  threadId: z.string().optional()
 })
 
 export const agentResponseSchema = z.object({
   id: z.string(),
   content: z.string(),
-  role: z.literal('assistant'),
+  role: z.string(),
   timestamp: z.string(),
   metadata: z.object({
-    tokenRecommendations: z.array(z.object({
-      id: z.string(),
-      name: z.string(),
-      symbol: z.string(),
-      description: z.string(),
-      imageUrl: z.string(),
-      price: z.string(),
-      culturalScore: z.number(),
-      tokenType: z.literal('ERC20')
-    })).optional(),
-    actions: z.array(z.object({
-      type: z.string(),
-      tokenId: z.string(),
-      label: z.string()
-    })).optional()
-  }).optional()
+    tokenRecommendations: z.array(z.any()),
+    actions: z.array(z.any())
+  })
 })
+
+export type AgentRequest = z.infer<typeof agentRequestSchema>
+export type AgentResponse = z.infer<typeof agentResponseSchema>
+
+const SYSTEM_PROMPT = `You are an AI assistant specializing in cultural tokens and NFTs. Your role is to:
+1. Recommend ERC-20 tokens related to art, music, and culture
+2. Analyze token potential and cultural impact
+3. Provide insights on token utility and community engagement
+4. Format recommendations as: "1. TokenName ($SYMBOL): Description"
+5. Include Actions section with format: "type|tokenId|label"
+
+Example response structure:
+Token Recommendations:
+1. TokenName ($SYMBOL): Description of the token and its cultural significance.
+
+Actions:
+view|SYMBOL|View Details
+buy|SYMBOL|Buy Now
+share|SYMBOL|Share Token`
+
+export const AGENT_CONFIG = {
+  model: chatModel,
+  systemMessage: new SystemMessage(SYSTEM_PROMPT)
+}
+
+export async function getAgent() {
+  const chain = RunnableSequence.from([
+    {
+      question: (input: AgentRequest) => input.message,
+      systemMessage: () => AGENT_CONFIG.systemMessage,
+      threadId: (input: AgentRequest) => input.threadId || `cultural-agent-${crypto.randomUUID()}`
+    },
+    {
+      response: async (input: { question: string; systemMessage: SystemMessage; threadId: string }) => {
+        const response = await AGENT_CONFIG.model.invoke([
+          input.systemMessage,
+          new HumanMessage(input.question)
+        ], {
+          configurable: {
+            thread_id: input.threadId
+          }
+        })
+        return response.content
+      }
+    }
+  ])
+  
+  return chain
+}
