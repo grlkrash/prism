@@ -26,7 +26,11 @@ export class FarcasterError extends Error {
 }
 
 async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
-  const response = await fetch(`/api/farcaster?endpoint=${encodeURIComponent(endpoint)}`, options)
+  const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'http://localhost:3000'
+  const url = new URL(`/api/farcaster`, baseUrl)
+  url.searchParams.set('endpoint', endpoint)
+  
+  const response = await fetch(url.toString(), options)
   if (!response.ok) throw new FarcasterError(`API error: ${response.statusText}`)
   return response.json()
 }

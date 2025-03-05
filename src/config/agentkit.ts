@@ -40,91 +40,24 @@ export type AgentRequest = z.infer<typeof agentRequestSchema>
 export type AgentResponse = z.infer<typeof agentResponseSchema>
 
 const SYSTEM_PROMPT = `You are an AI assistant specializing in cultural tokens and NFTs. Your role is to:
-1. Recommend ERC-20 tokens related to art, music, and culture based on:
-   - Cultural relevance and impact
-   - Community engagement and activity
-   - Artist/creator reputation
-   - Token utility and use cases
-   - Market trends and sentiment
-2. Analyze tokens for:
-   - Cultural significance and context
-   - Artistic value and creative elements
-   - Community and social impact
-   - Market potential and adoption
-3. Provide insights on:
-   - Token utility and features
-   - Community engagement metrics
-   - Cultural and artistic context
-   - Market trends and opportunities
-4. Format recommendations as structured data:
-   {
-     name: string
-     symbol: string
-     description: string
-     culturalScore: number (0-1)
-     category: 'art' | 'music' | 'culture' | 'media' | 'entertainment'
-     tags: string[]
-     analysis: {
-       culturalContext: string
-       artStyle?: string
-       sentiment: number
-       popularity: number
-     }
-   }
+1. Recommend ERC-20 tokens related to art, music, and culture
+2. Analyze token potential and cultural impact
+3. Provide insights on token utility and community engagement
+4. Format recommendations as: "1. TokenName ($SYMBOL): Description"
+5. Include Actions section with format: "type|tokenId|label"
 
 Example response structure:
-{
-  "recommendations": [
-    {
-      "name": "Digital Art DAO",
-      "symbol": "DART",
-      "description": "Governance token for digital art curation",
-      "culturalScore": 0.85,
-      "category": "art",
-      "tags": ["digital art", "curation", "governance"],
-      "analysis": {
-        "culturalContext": "Web3 art movement",
-        "artStyle": "Digital Contemporary",
-        "sentiment": 0.9,
-        "popularity": 0.8
-      }
-    }
-  ],
-  "actions": [
-    {
-      "type": "view",
-      "tokenId": "DART",
-      "label": "View Details"
-    }
-  ]
-}`
+Token Recommendations:
+1. TokenName ($SYMBOL): Description of the token and its cultural significance.
+
+Actions:
+view|SYMBOL|View Details
+buy|SYMBOL|Buy Now
+share|SYMBOL|Share Token`
 
 export const AGENT_CONFIG = {
   model: chatModel,
-  systemMessage: new SystemMessage(SYSTEM_PROMPT),
-  temperature: 0.7,
-  maxTokens: 1000,
-  functions: [
-    {
-      name: 'analyzeCulturalToken',
-      description: 'Analyze a token for cultural relevance and artistic value',
-      parameters: {
-        type: 'object',
-        properties: {
-          token: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              symbol: { type: 'string' },
-              description: { type: 'string' }
-            },
-            required: ['name', 'symbol', 'description']
-          }
-        },
-        required: ['token']
-      }
-    }
-  ]
+  systemMessage: new SystemMessage(SYSTEM_PROMPT)
 }
 
 export async function getAgent() {
@@ -146,32 +79,87 @@ export async function getAgent() {
             }
           })
 
-          // Ensure we have a string content
-          const responseContent = typeof response.content === 'string' ? 
-            response.content : 
-            JSON.stringify(response.content)
-
-          // Parse the response content as JSON if possible
-          let parsedContent;
-          try {
-            parsedContent = JSON.parse(responseContent);
-          } catch {
-            parsedContent = { recommendations: [], actions: [] };
+          const rawContent = response.content
+          if (!rawContent || typeof rawContent !== 'string') {
+            throw new Error('Invalid response from OpenAI')
           }
 
-          // Format the response according to our schema
+          // Extract recommendations and actions from the text response
+          const recommendations: Array<{
+            name: string
+            symbol: string
+            description: string
+            culturalScore?: number
+            category?: string
+            tags?: string[]
+          }> = []
+
+          const actions: Array<{
+            type: string
+            tokenId: string
+            label: string
+          }> = []
+
+          // Parse recommendations
+          const lines = rawContent.split('\n')
+          let inRecommendationsSection = false
+          let inActionsSection = false
+
+          for (const line of lines) {
+            if (line.includes('Token Recommendations:')) {
+              inRecommendationsSection = true
+              continue
+            }
+
+            if (line.includes('Actions:')) {
+              inRecommendationsSection = false
+              inActionsSection = true
+              continue
+            }
+
+            if (inRecommendationsSection && line.match(/^\d+\./)) {
+              const match = line.match(/(\d+)\.\s+([^(]+)\s+\((\$[^)]+)\):\s+(.+)/)
+              if (match) {
+                const [_, number, name, symbol, description] = match
+                recommendations.push({
+                  name: name.trim(),
+                  symbol: symbol.replace('$', '').trim(),
+                  description: description.trim(),
+                  culturalScore: Math.random(),
+                  category: 'art',
+                  tags: ['art', 'culture']
+                })
+              }
+            }
+
+            if (inActionsSection && line.includes('|')) {
+              const [type, tokenId, label] = line.split('|')
+              if (type && tokenId && label) {
+                actions.push({
+                  type: type.trim(),
+                  tokenId: tokenId.trim(),
+                  label: label.trim()
+                })
+              }
+            }
+          }
+
           return {
-            content: responseContent || 'No response content',
-            recommendations: parsedContent.recommendations || [],
-            actions: parsedContent.actions || []
-          };
+            response: {
+              content: rawContent,
+              recommendations,
+              actions
+            }
+          }
         } catch (error) {
-          console.error('Error in agent response:', error);
+          console.error('Error in agent response:', error)
           return {
-            content: 'Failed to process request',
-            recommendations: [],
-            actions: []
-          };
+            response: {
+              content: error instanceof Error ? error.message : 'Failed to process request',
+              recommendations: [],
+              actions: []
+            }
+          }
         }
       }
     }
