@@ -2,16 +2,8 @@ import { NextRequest } from 'next/server'
 import { logger } from './logger'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
-const MBD_API_KEY = process.env.NEXT_PUBLIC_MBD_API_KEY
-const MBD_API_URL = process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
-
-if (!MBD_API_KEY) {
-  console.error('[MBD AI] API key not found. Please set NEXT_PUBLIC_MBD_API_KEY in your environment variables.')
-}
-
-if (!MBD_API_URL) {
-  console.error('[MBD AI] API URL not found')
-}
+// Remove direct API key access since we're using the proxy
+const API_URL = '/api/mbd'
 
 export interface Token {
   id: string | number
@@ -316,21 +308,16 @@ function checkRateLimit(userId: string): boolean {
 
 // Update makeMbdRequest to handle errors better
 async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): Promise<T> {
-  if (!MBD_API_KEY) {
-    throw new MbdApiError('Missing API key')
-  }
-
   // Rate limit check
   if (userId && !checkRateLimit(userId)) {
     throw new RateLimitError('Rate limit exceeded')
   }
 
   try {
-    const response = await fetch(`${MBD_API_URL}${endpoint}`, {
+    const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(data),
     })
@@ -346,7 +333,6 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
 
     const result = await response.json()
     
-    // Handle potential undefined data
     if (!result || !result.data) {
       throw new MbdApiError('Invalid API response')
     }
@@ -510,11 +496,6 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
 }
 
 export async function getTrendingFeed(cursor?: string) {
-  if (!process.env.NEXT_PUBLIC_MBD_API_KEY) {
-    console.error('[MBD AI] API key not found in getTrendingFeed')
-    throw new Error('MBD API key not found')
-  }
-
   console.log('[MBD AI] Making request to local API route')
 
   try {
@@ -523,7 +504,7 @@ export async function getTrendingFeed(cursor?: string) {
     })
     if (cursor) params.set('cursor', cursor)
 
-    const response = await fetch(`/api/mbd?${params.toString()}`)
+    const response = await fetch(`${API_URL}?${params.toString()}`)
 
     if (!response.ok) {
       const errorText = await response.text()
@@ -544,7 +525,6 @@ export async function getTrendingFeed(cursor?: string) {
 
     const data = result.data
     
-    // Ensure we return different data for pagination
     if (cursor) {
       data.casts = data.casts.map((cast: Cast) => ({
         ...cast,

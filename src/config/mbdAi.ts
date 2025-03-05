@@ -12,7 +12,7 @@ export const MBD_AI_CONFIG = {
     
     // Check if we're on the server side
     if (typeof window === 'undefined') {
-      const apiKey = process.env.NEXT_PUBLIC_MBD_API_KEY
+      const apiKey = process.env.MBD_API_KEY
       if (!apiKey) {
         console.error('[MBD AI] API key not found in environment variables')
         throw new Error('MBD API key not found')
@@ -90,10 +90,23 @@ export const MBD_AI_CONFIG = {
 
   // Error Messages
   ERRORS: {
-    MISSING_CONFIG: 'Missing MBD AI API key. Please ensure NEXT_PUBLIC_MBD_API_KEY is set in your environment variables.',
+    MISSING_CONFIG: 'Missing MBD AI API key. Please ensure MBD_API_KEY is set in your environment variables.',
     RATE_LIMIT: 'Rate limit exceeded. Please try again later.',
     API_ERROR: 'Failed to communicate with MBD AI API',
     INVALID_RESPONSE: 'Invalid response from MBD AI API'
+  },
+
+  logConfig: () => {
+    console.log('=== MBD AI Configuration Debug ===')
+    console.log('1. Environment Check:')
+    console.log('- process.env exists:', !!process.env)
+    console.log('- MBD_API_KEY:', process.env.MBD_API_KEY?.substring(0, 8) + '...')
+    console.log('- MBD_AI_API_URL:', process.env.MBD_AI_API_URL)
+
+    console.log('\n2. Configuration Check:')
+    console.log('- API Key exists:', !!process.env.MBD_API_KEY)
+    console.log('- API Key format:', typeof process.env.MBD_API_KEY === 'string' && process.env.MBD_API_KEY.startsWith('mbd-'))
+    console.log('- API_URL:', MBD_AI_CONFIG.API_URL)
   }
 }
 
@@ -103,7 +116,7 @@ const validateConfig = () => {
     return true // Skip validation on client side
   }
   
-  const apiKey = process.env.NEXT_PUBLIC_MBD_API_KEY
+  const apiKey = process.env.MBD_API_KEY
   if (!apiKey?.startsWith('mbd-')) {
     console.error('[MBD AI] Invalid API key format. Key should start with "mbd-"')
     return false
@@ -116,16 +129,7 @@ export const isConfigValid = validateConfig()
 
 // Validate configuration in development only
 if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'production') {
-  console.log('=== MBD AI Configuration Debug ===')
-  console.log('1. Environment Check:')
-  console.log('- process.env exists:', !!process.env)
-  console.log('- MBD_API_KEY:', process.env.NEXT_PUBLIC_MBD_API_KEY?.substring(0, 8) + '...')
-  console.log('- MBD_AI_API_URL:', process.env.NEXT_PUBLIC_MBD_AI_API_URL)
-  
-  console.log('\n2. Configuration Check:')
-  console.log('- API Key exists:', !!process.env.NEXT_PUBLIC_MBD_API_KEY)
-  console.log('- API Key format:', typeof process.env.NEXT_PUBLIC_MBD_API_KEY === 'string' && process.env.NEXT_PUBLIC_MBD_API_KEY.startsWith('mbd-'))
-  console.log('- API_URL:', MBD_AI_CONFIG.API_URL)
+  MBD_AI_CONFIG.logConfig()
 }
 
 export default MBD_AI_CONFIG
@@ -142,7 +146,7 @@ export async function checkApiStatus() {
 }
 
 // Add test mode flag
-export const isTestMode = process.env.NODE_ENV === 'test' || process.env.NEXT_PUBLIC_MBD_API_KEY === 'test-key-for-development'
+export const isTestMode = process.env.NODE_ENV === 'test' || process.env.MBD_API_KEY === 'test-key-for-development'
 
 // Helper function to get mock data for test mode
 export function getMockData() {

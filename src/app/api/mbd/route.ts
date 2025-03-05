@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
+        'Authorization': `Bearer ${process.env.MBD_API_KEY}`
       }
     })
 
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
+        'Authorization': `Bearer ${process.env.MBD_API_KEY}`
       },
       body: JSON.stringify(body)
     })
