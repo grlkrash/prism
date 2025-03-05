@@ -617,11 +617,10 @@ export default function Demo() {
 
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4 mb-4">
+        <TabsList className="grid w-full grid-cols-3 mb-4">
           <TabsTrigger value="feed">Feed</TabsTrigger>
           <TabsTrigger value="curator">Curator</TabsTrigger>
           <TabsTrigger value="friends">Friends</TabsTrigger>
-          <TabsTrigger value="chat">Chat</TabsTrigger>
         </TabsList>
 
         <TabsContent value="feed" className="space-y-4">
@@ -654,10 +653,6 @@ export default function Demo() {
             hasMore={false}
             onLoadMore={async () => {}}
           />
-        </TabsContent>
-
-        <TabsContent value="chat">
-          <AgentChat />
         </TabsContent>
       </Tabs>
     </div>

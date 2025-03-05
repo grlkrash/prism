@@ -18,31 +18,7 @@ export default function Home() {
       </header>
       
       <main className="container mx-auto p-4">
-        <Tabs defaultValue="discover" className="w-full">
-          <TabsList className="w-full justify-start mb-4">
-            <TabsTrigger value="discover">Discover</TabsTrigger>
-            <TabsTrigger value="agent">AI Agent</TabsTrigger>
-            <TabsTrigger value="social">Social</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="discover">
-            <Demo />
-          </TabsContent>
-          
-          <TabsContent value="agent">
-            <div className="flex flex-col space-y-4">
-              <h2 className="text-xl font-semibold">AI Agent</h2>
-              {/* Agent content will be loaded separately */}
-            </div>
-          </TabsContent>
-          
-          <TabsContent value="social">
-            <div className="flex flex-col space-y-4">
-              <h2 className="text-xl font-semibold">Social Activity</h2>
-              {/* Social content will be loaded separately */}
-            </div>
-          </TabsContent>
-        </Tabs>
+        <Demo />
       </main>
     </div>
   )
