@@ -2,15 +2,15 @@ import { NextRequest } from 'next/server'
 import { logger } from './logger'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
-const MBD_API_KEY = process.env.MBD_API_KEY || process.env.NEXT_PUBLIC_MBD_AI_API_KEY
+const MBD_API_KEY = process.env.NEXT_PUBLIC_MBD_AI_API_KEY
 const MBD_API_URL = process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
 
 if (!MBD_API_KEY) {
-  logger.error('MBD API key not found. Please set MBD_API_KEY in your environment variables.')
+  console.error('[MBD AI] API key not found - **')
 }
 
 if (!MBD_API_URL) {
-  logger.error('MBD API URL not found. Please set NEXT_PUBLIC_MBD_AI_API_URL in your environment variables.')
+  console.error('[MBD AI] API URL not found - **')
 }
 
 export interface Token {
@@ -547,26 +547,7 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
 export async function getTrendingFeed(cursor?: string): Promise<FeedResponse> {
   try {
     if (!MBD_API_KEY) {
-      // Use mock data in development if no API key
-      if (process.env.NODE_ENV === 'development') {
-        return {
-          casts: tokenDatabase.map(token => ({
-            hash: token.id.toString(),
-            author: {
-              fid: 1,
-              username: token.artistName,
-              displayName: token.artistName,
-              pfp: token.imageUrl
-            },
-            text: token.description,
-            timestamp: Date.now().toString(),
-            reactions: {
-              likes: Math.floor(Math.random() * 100),
-              recasts: Math.floor(Math.random() * 50)
-            }
-          }))
-        }
-      }
+      logger.error('[MBD AI] Error fetching trending feed: Missing API key')
       throw new MbdApiError('Missing API key')
     }
 
