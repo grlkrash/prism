@@ -1,7 +1,7 @@
 export const MBD_AI_CONFIG = {
   // API Configuration
-  API_URL: process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.warpcast.com',
-  WARPCAST_API_URL: 'https://api.warpcast.com',
+  API_URL: process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
+  WARPCAST_API_URL: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com',
   API_KEY: process.env.MBD_API_KEY,
   
   // Headers Configuration
@@ -11,8 +11,9 @@ export const MBD_AI_CONFIG = {
       'Accept': 'application/json'
     }
     
-    if (process.env.MBD_API_KEY) {
-      headers['Authorization'] = `Bearer ${process.env.MBD_API_KEY}`
+    const apiKey = process.env.MBD_API_KEY
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
     }
     
     return headers

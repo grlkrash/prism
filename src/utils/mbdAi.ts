@@ -2,11 +2,15 @@ import { NextRequest } from 'next/server'
 import { logger } from './logger'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
-const MBD_API_KEY = process.env.MBD_API_KEY
-const MBD_API_URL = process.env.NEXT_PUBLIC_MBD_AI_API_URL
+const MBD_API_KEY = process.env.MBD_API_KEY || process.env.NEXT_PUBLIC_MBD_AI_API_KEY
+const MBD_API_URL = process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
 
 if (!MBD_API_KEY) {
-  logger.error('MBD API key not found')
+  logger.error('MBD API key not found. Please set MBD_API_KEY in your environment variables.')
+}
+
+if (!MBD_API_URL) {
+  logger.error('MBD API URL not found. Please set NEXT_PUBLIC_MBD_AI_API_URL in your environment variables.')
 }
 
 export interface Token {
