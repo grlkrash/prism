@@ -96,25 +96,28 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
     const validatedRequest = agentRequestSchema.parse(request)
     const agent = await getAgent()
 
-    const response = await agent.invoke(validatedRequest)
-    const responseContent = typeof response === 'string' ? response : 
-      typeof response === 'object' && 'content' in response ? String(response.content) : 
-      String(response)
-
+    const agentResponse = await agent.invoke(validatedRequest)
+    
     // Add friend activities to response if requested
     let friendActivities: FriendActivity[] = []
     if (validatedRequest.userId) {
-      friendActivities = await getFriendActivities(validatedRequest.userId)
+      try {
+        friendActivities = await getFriendActivities(validatedRequest.userId)
+      } catch (error) {
+        console.error('Error fetching friend activities:', error)
+      }
     }
 
     const result: AgentResponse = {
       id: crypto.randomUUID(),
-      content: responseContent,
+      content: typeof agentResponse.content === 'string' ? 
+        agentResponse.content : 
+        JSON.stringify(agentResponse.content),
       role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
-        tokenRecommendations: await extractTokenRecommendations(responseContent),
-        actions: extractActions(responseContent),
+        tokenRecommendations: agentResponse.recommendations || [],
+        actions: agentResponse.actions || [],
         friendActivities,
         referrals: validatedRequest.userId ? await getReferrals(validatedRequest.userId) : []
       }
@@ -122,9 +125,9 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
 
     return agentResponseSchema.parse(result)
   } catch (error) {
+    console.error('Error in sendMessage:', error)
     const errorMessage = error instanceof Error ? error.message : 'Internal server error'
-    logger.error('Error in sendMessage:', error)
-    throw new AgentkitError(errorMessage)
+    throw new Error(errorMessage)
   }
 }
 

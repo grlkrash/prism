@@ -136,15 +136,43 @@ export async function getAgent() {
     },
     {
       response: async (input: { question: string; systemMessage: SystemMessage; threadId: string }) => {
-        const response = await AGENT_CONFIG.model.invoke([
-          input.systemMessage,
-          new HumanMessage(input.question)
-        ], {
-          configurable: {
-            thread_id: input.threadId
+        try {
+          const response = await AGENT_CONFIG.model.invoke([
+            input.systemMessage,
+            new HumanMessage(input.question)
+          ], {
+            configurable: {
+              thread_id: input.threadId
+            }
+          })
+
+          // Ensure we have a string content
+          const responseContent = typeof response.content === 'string' ? 
+            response.content : 
+            JSON.stringify(response.content)
+
+          // Parse the response content as JSON if possible
+          let parsedContent;
+          try {
+            parsedContent = JSON.parse(responseContent);
+          } catch {
+            parsedContent = { recommendations: [], actions: [] };
           }
-        })
-        return response.content
+
+          // Format the response according to our schema
+          return {
+            content: responseContent || 'No response content',
+            recommendations: parsedContent.recommendations || [],
+            actions: parsedContent.actions || []
+          };
+        } catch (error) {
+          console.error('Error in agent response:', error);
+          return {
+            content: 'Failed to process request',
+            recommendations: [],
+            actions: []
+          };
+        }
       }
     }
   ])
