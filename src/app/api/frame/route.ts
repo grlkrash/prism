@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
-import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast } from '@/utils/mbdAi'
+import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast, tokenDatabase } from '@/utils/mbdAi'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { OpenAI } from 'openai'
-import frameSdk from '@farcaster/frame-sdk'
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -123,67 +122,101 @@ export async function POST(req: NextRequest) {
     // Validate frame request
     const validationResult = await validateFrameRequest({
       ...body,
-      // Only validate messageBytes in production
       skipMessageBytesValidation: process.env.NODE_ENV !== 'production'
     })
 
     if (!validationResult.isValid) {
       console.error('[ERROR] Frame validation failed:', validationResult.message)
-      return new NextResponse(
-        JSON.stringify({ error: 'Invalid frame request' }),
-        { status: 400 }
-      )
-    }
-
-    const { message } = validationResult
-    
-    // Get recommendations from both agent and MBD AI
-    const [agentResponse, mbdResponse] = await Promise.all([
-      sendMessage({
-        message: 'Show me cultural tokens in art category',
-        userId: message?.fid || 'anonymous',
-        context: { button: message?.button }
-      }),
-      getPersonalizedFeed()
-    ])
-
-    // Combine recommendations
-    const recommendations = [
-      ...(agentResponse.metadata?.tokenRecommendations || []),
-      ...(mbdResponse?.data?.casts || [])
-        .filter((cast: Cast) => cast.aiAnalysis?.hasCulturalElements)
-        .map((cast: Cast) => ({
-              id: cast.hash,
-          name: cast.text.slice(0, 50),
-          symbol: 'CULT',
-              description: cast.text,
-          imageUrl: 'https://placehold.co/1200x630/png',
-          culturalScore: cast.metadata?.culturalScore || cast.aiAnalysis?.aiScore || 0
-        }))
-    ]
-
-    // If no recommendations, return error message
-    if (recommendations.length === 0) {
       return new Response(generateFrameHtml({
         postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
-        errorMessage: 'No cultural tokens found at the moment'
+        errorMessage: 'Invalid frame request'
       }), {
         headers: { 'Content-Type': 'text/html' }
       })
     }
 
-    // Get the current token based on button index
-    const currentIndex = ((message?.button || 1) - 1) % recommendations.length
-    const currentToken = recommendations[currentIndex]
+    const { message } = validationResult
+    const recommendations = []
+    
+    try {
+      // Get recommendations from agent first
+      const agentResponse = await sendMessage({
+        message: 'Show me cultural tokens in art category',
+        userId: message?.fid || 'anonymous',
+        context: { button: message?.button }
+      })
 
-    return new Response(generateFrameHtml({
-      postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
-      recommendations,
-      token: currentToken,
-      imageUrl: currentToken.imageUrl
-    }), {
-      headers: { 'Content-Type': 'text/html' }
-    })
+      logger.info('Agent response:', agentResponse)
+
+      // Add agent recommendations if available
+      if (agentResponse?.metadata?.tokenRecommendations) {
+        recommendations.push(...agentResponse.metadata.tokenRecommendations)
+        logger.info('Added agent recommendations:', recommendations.length)
+      }
+
+      // Try to get MBD AI recommendations
+      try {
+        const mbdResponse = await getPersonalizedFeed()
+        if (mbdResponse?.data?.casts) {
+          const culturalCasts = mbdResponse.data.casts
+            .filter((cast: Cast) => cast.aiAnalysis?.hasCulturalElements)
+            .map((cast: Cast) => ({
+              id: cast.hash,
+              name: cast.text.slice(0, 50),
+              symbol: 'CULT',
+              description: cast.text,
+              imageUrl: 'https://placehold.co/1200x630/png',
+              culturalScore: cast.metadata?.culturalScore || cast.aiAnalysis?.aiScore || 0
+            }))
+          recommendations.push(...culturalCasts)
+          logger.info('Added MBD AI recommendations:', culturalCasts.length)
+        }
+      } catch (mbdError) {
+        logger.error('MBD AI error (continuing with agent recommendations):', mbdError)
+      }
+
+      // If still no recommendations, use mock data
+      if (recommendations.length === 0) {
+        logger.info('Using mock data as fallback')
+        const mockTokens = tokenDatabase.map(token => ({
+          ...token,
+          imageUrl: 'https://placehold.co/1200x630/png'
+        }))
+        recommendations.push(...mockTokens)
+      }
+
+      // Get the current token based on button index
+      const currentIndex = ((message?.button || 1) - 1) % recommendations.length
+      const currentToken = recommendations[currentIndex]
+
+      logger.info('Returning frame with token:', currentToken?.name)
+
+      return new Response(generateFrameHtml({
+        postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
+        recommendations,
+        token: currentToken,
+        imageUrl: currentToken.imageUrl
+      }), {
+        headers: { 'Content-Type': 'text/html' }
+      })
+    } catch (agentError) {
+      logger.error('Error in agent processing:', agentError)
+      // Return mock data if agent fails
+      const mockTokens = tokenDatabase.map(token => ({
+        ...token,
+        imageUrl: 'https://placehold.co/1200x630/png'
+      }))
+      const currentToken = mockTokens[0]
+
+      return new Response(generateFrameHtml({
+        postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
+        recommendations: mockTokens,
+        token: currentToken,
+        imageUrl: currentToken.imageUrl
+      }), {
+        headers: { 'Content-Type': 'text/html' }
+      })
+    }
   } catch (error) {
     logger.error('Error in frame POST:', error)
     return new Response(generateFrameHtml({
@@ -215,7 +248,7 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
 
     const body = await req.json()
     
-    // Basic validation of request body
+    // Basic validation of request body according to Frames v2 spec
     if (!body || typeof body !== 'object') {
       logger.error('Invalid frame request: Missing or invalid request body')
       return { isValid: false }
@@ -223,23 +256,22 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
 
     const { untrustedData, trustedData } = body
 
-    // Validate required fields
+    // Validate required fields per Frames v2 spec
     if (!untrustedData || typeof untrustedData !== 'object') {
       logger.error('Invalid frame request: Missing untrustedData')
       return { isValid: false }
     }
 
-    // Extract button index and fid with defaults
+    // Extract and validate button index (must be 1-4 per spec)
     const buttonIndex = Number(untrustedData.buttonIndex) || 1
     const fid = untrustedData.fid || 'anonymous'
 
-    // Validate button index
     if (buttonIndex < 1 || buttonIndex > 4) {
       logger.error('Invalid frame request: Invalid button index')
       return { isValid: false }
     }
 
-    // For production, validate messageBytes using Warpcast API
+    // For production, validate messageBytes using Warpcast Hub API
     if (process.env.NODE_ENV === 'production' && trustedData?.messageBytes) {
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_FARCASTER_HUB_URL}/v1/validateMessage`, {
