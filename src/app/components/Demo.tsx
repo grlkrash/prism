@@ -289,7 +289,7 @@ export default function Demo() {
                           ...enhancement.metadata,
                           aiScore: Math.max(
                             enhancement.metadata?.aiScore || 0,
-                            token.metadata.aiScore || 0
+                            token.metadata?.aiScore || 0
                           )
                         }
                       }
