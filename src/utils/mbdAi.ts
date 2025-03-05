@@ -2,11 +2,11 @@ import { NextRequest } from 'next/server'
 import { logger } from './logger'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
-const MBD_API_KEY = process.env.MBD_API_KEY
-const MBD_API_URL = process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
+const MBD_API_KEY = process.env.NEXT_PUBLIC_MBD_API_KEY
+const MBD_API_URL = process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
 
 if (!MBD_API_KEY) {
-  console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
+  console.error('[MBD AI] API key not found. Please set NEXT_PUBLIC_MBD_API_KEY in your environment variables.')
 }
 
 if (!MBD_API_URL) {
@@ -330,7 +330,7 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MBD_API_KEY}`,
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`,
       },
       body: JSON.stringify(data),
     })
@@ -367,7 +367,7 @@ export async function analyzeToken(token: Token): Promise<Token> {
     method: 'POST',
     headers: {
       ...MBD_AI_CONFIG.getHeaders(),
-      'Authorization': `Bearer ${process.env.MBD_API_KEY}`
+      'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
     },
     body: JSON.stringify({ token })
   })
@@ -429,7 +429,7 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
 }
 
 export async function getPersonalizedFeed(cursor?: string) {
-  if (!process.env.MBD_API_KEY) {
+  if (!process.env.NEXT_PUBLIC_MBD_API_KEY) {
     throw new Error('MBD API key not found')
   }
 
@@ -440,7 +440,7 @@ export async function getPersonalizedFeed(cursor?: string) {
     method: 'GET',
     headers: {
       ...MBD_AI_CONFIG.getHeaders(),
-      'Authorization': `Bearer ${process.env.MBD_API_KEY}`
+      'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
     }
   })
 
@@ -510,36 +510,59 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
 }
 
 export async function getTrendingFeed(cursor?: string) {
-  if (!process.env.MBD_API_KEY) {
+  if (!process.env.NEXT_PUBLIC_MBD_API_KEY) {
+    console.error('[MBD AI] API key not found in getTrendingFeed')
     throw new Error('MBD API key not found')
   }
+
+  console.log('[MBD AI] Making request with API key:', process.env.NEXT_PUBLIC_MBD_API_KEY.substring(0, 8) + '...')
 
   const url = new URL(MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING, MBD_AI_CONFIG.API_URL)
   if (cursor) url.searchParams.set('cursor', cursor)
 
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: {
-      ...MBD_AI_CONFIG.getHeaders(),
-      'Authorization': `Bearer ${process.env.MBD_API_KEY}`
+  console.log('[MBD AI] Requesting URL:', url.toString())
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        ...MBD_AI_CONFIG.getHeaders(),
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[MBD AI] Error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      })
+      throw new Error(`Failed to fetch trending feed: ${response.status} ${response.statusText} - ${errorText}`)
     }
-  })
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch trending feed: ${response.statusText}`)
-  }
+    const result = await response.json()
+    
+    if (!result || !result.data) {
+      console.error('[MBD AI] Invalid response format:', result)
+      throw new Error('Invalid API response format')
+    }
 
-  const { data } = await response.json()
-  
-  // Ensure we return different data for pagination
-  if (cursor) {
-    data.casts = data.casts.map((cast: Cast) => ({
-      ...cast,
-      hash: `${cast.hash}-${cursor}`
-    }))
+    const data = result.data
+    
+    // Ensure we return different data for pagination
+    if (cursor) {
+      data.casts = data.casts.map((cast: Cast) => ({
+        ...cast,
+        hash: `${cast.hash}-${cursor}`
+      }))
+    }
+    
+    return data
+  } catch (error) {
+    console.error('[MBD AI] Error in getTrendingFeed:', error)
+    throw error
   }
-  
-  return data
 }
 
 export async function searchCasts(query: string, cursor?: string) {
