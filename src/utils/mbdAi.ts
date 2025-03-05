@@ -159,7 +159,7 @@ interface Cast {
   }
 }
 
-interface FeedResponse {
+export interface FeedResponse {
   casts: Cast[]
   next?: {
     cursor: string

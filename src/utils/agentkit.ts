@@ -6,6 +6,7 @@ import { HumanMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
 import { createReactAgent } from "@langchain/langgraph/prebuilt"
 import { ChatOpenAI } from "@langchain/openai"
+import { AgentKit } from "@coinbase/agentkit-langchain"
 
 class AgentkitError extends Error {
   constructor(message: string, public status?: number, public code?: string) {
@@ -46,7 +47,7 @@ function checkRateLimit(userId: string): boolean {
 }
 
 // Initialize LangChain tools
-const tools = getLangChainTools(actionProviders)
+const tools = getLangChainTools(actionProviders as any)
 
 // Initialize the agent
 const llm = new ChatOpenAI({
@@ -118,13 +119,22 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
 
 export async function getTokenRecommendations(userId: string, preferences?: {
   interests?: string[]
-  priceRange?: { min: number; max: number }
+  priceRange?: { min?: number; max?: number }
 }, farcasterClient?: any): Promise<AgentResponse> {
+  // Ensure priceRange has both min and max values
+  const normalizedPreferences = preferences ? {
+    ...preferences,
+    priceRange: preferences.priceRange ? {
+      min: preferences.priceRange.min || 0,
+      max: preferences.priceRange.max || 1000
+    } : undefined
+  } : undefined;
+
   return sendMessage({
     message: 'Please recommend some cultural tokens based on my preferences and Farcaster trends.',
     userId,
     context: {
-      userPreferences: preferences,
+      userPreferences: normalizedPreferences,
       farcasterContext: farcasterClient ? {
         client: farcasterClient,
         userFid: userId

@@ -1,4 +1,4 @@
-import { createClient } from '@farcaster/core'
+import { Frame } from '@farcaster/frame-sdk'
 import { logger } from './logger'
 
 class FarcasterError extends Error {
@@ -9,9 +9,9 @@ class FarcasterError extends Error {
 }
 
 // Initialize Farcaster client
-const farcasterClient = createClient({
-  apiKey: process.env.FARCASTER_API_KEY || '',
-  baseUrl: process.env.FARCASTER_API_URL || 'https://api.farcaster.xyz',
+const farcasterClient = new Frame({
+  apiKey: process.env.NEXT_PUBLIC_FARCASTER_API_KEY || '',
+  baseUrl: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.farcaster.xyz',
 })
 
 export async function searchCasts(query: string, limit: number = 10) {

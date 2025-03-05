@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sendMessage, getTokenRecommendations, analyzeTokenWithAgent } from '@/utils/agentkit';
 import { agentRequestSchema } from '@/config/agentkit';
 import { logger } from '@/utils/logger';
+import { ZodError } from 'zod';
 
 // This is a simplified implementation - in a real app, you would connect to the actual MBD AI API
 const mbdAnalyzeTokens = async (query: string) => {
@@ -47,9 +48,18 @@ export async function POST(req: NextRequest) {
     let response;
     switch (validatedRequest.message.toLowerCase()) {
       case 'recommend tokens':
+        // Ensure priceRange has both min and max values
+        const userPreferences = validatedRequest.context?.userPreferences;
+        if (userPreferences?.priceRange) {
+          userPreferences.priceRange = {
+            min: userPreferences.priceRange.min || 0,
+            max: userPreferences.priceRange.max || 1000
+          };
+        }
+        
         response = await getTokenRecommendations(
           validatedRequest.userId || 'anonymous',
-          validatedRequest.context?.userPreferences
+          userPreferences
         );
         break;
       case 'analyze token':
@@ -72,14 +82,14 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     logger.error('Error in agent API route:', error);
     
-    if (error.name === 'ZodError') {
+    if (error instanceof ZodError) {
       return NextResponse.json(
         { error: 'Invalid request parameters' },
         { status: 400 }
       );
     }
 
-    if (error.name === 'RateLimitError') {
+    if (error instanceof Error && error.name === 'RateLimitError') {
       return NextResponse.json(
         { error: error.message },
         { status: 429 }

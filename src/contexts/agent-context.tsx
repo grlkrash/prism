@@ -104,7 +104,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       const data = await response.json()
       dispatch({ type: 'ADD_MESSAGE', payload: data })
     } catch (error) {
-      dispatch({ type: 'SET_ERROR', payload: error.message })
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred'
+      dispatch({ type: 'SET_ERROR', payload: errorMessage })
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false })
     }
