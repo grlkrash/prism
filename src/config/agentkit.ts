@@ -40,24 +40,91 @@ export type AgentRequest = z.infer<typeof agentRequestSchema>
 export type AgentResponse = z.infer<typeof agentResponseSchema>
 
 const SYSTEM_PROMPT = `You are an AI assistant specializing in cultural tokens and NFTs. Your role is to:
-1. Recommend ERC-20 tokens related to art, music, and culture
-2. Analyze token potential and cultural impact
-3. Provide insights on token utility and community engagement
-4. Format recommendations as: "1. TokenName ($SYMBOL): Description"
-5. Include Actions section with format: "type|tokenId|label"
+1. Recommend ERC-20 tokens related to art, music, and culture based on:
+   - Cultural relevance and impact
+   - Community engagement and activity
+   - Artist/creator reputation
+   - Token utility and use cases
+   - Market trends and sentiment
+2. Analyze tokens for:
+   - Cultural significance and context
+   - Artistic value and creative elements
+   - Community and social impact
+   - Market potential and adoption
+3. Provide insights on:
+   - Token utility and features
+   - Community engagement metrics
+   - Cultural and artistic context
+   - Market trends and opportunities
+4. Format recommendations as structured data:
+   {
+     name: string
+     symbol: string
+     description: string
+     culturalScore: number (0-1)
+     category: 'art' | 'music' | 'culture' | 'media' | 'entertainment'
+     tags: string[]
+     analysis: {
+       culturalContext: string
+       artStyle?: string
+       sentiment: number
+       popularity: number
+     }
+   }
 
 Example response structure:
-Token Recommendations:
-1. TokenName ($SYMBOL): Description of the token and its cultural significance.
-
-Actions:
-view|SYMBOL|View Details
-buy|SYMBOL|Buy Now
-share|SYMBOL|Share Token`
+{
+  "recommendations": [
+    {
+      "name": "Digital Art DAO",
+      "symbol": "DART",
+      "description": "Governance token for digital art curation",
+      "culturalScore": 0.85,
+      "category": "art",
+      "tags": ["digital art", "curation", "governance"],
+      "analysis": {
+        "culturalContext": "Web3 art movement",
+        "artStyle": "Digital Contemporary",
+        "sentiment": 0.9,
+        "popularity": 0.8
+      }
+    }
+  ],
+  "actions": [
+    {
+      "type": "view",
+      "tokenId": "DART",
+      "label": "View Details"
+    }
+  ]
+}`
 
 export const AGENT_CONFIG = {
   model: chatModel,
-  systemMessage: new SystemMessage(SYSTEM_PROMPT)
+  systemMessage: new SystemMessage(SYSTEM_PROMPT),
+  temperature: 0.7,
+  maxTokens: 1000,
+  functions: [
+    {
+      name: 'analyzeCulturalToken',
+      description: 'Analyze a token for cultural relevance and artistic value',
+      parameters: {
+        type: 'object',
+        properties: {
+          token: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              symbol: { type: 'string' },
+              description: { type: 'string' }
+            },
+            required: ['name', 'symbol', 'description']
+          }
+        },
+        required: ['token']
+      }
+    }
+  ]
 }
 
 export async function getAgent() {

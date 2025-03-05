@@ -13,8 +13,8 @@ export const MBD_AI_CONFIG = {
     // Check if we're on the server side
     if (typeof window === 'undefined') {
       const apiKey = process.env.MBD_API_KEY
-      if (!apiKey) {
-        throw new Error('MBD API key not found. Please set MBD_API_KEY in your environment variables.')
+      if (!apiKey?.startsWith('mbd-')) {
+        throw new Error('Invalid MBD API key format. Key should start with "mbd-"')
       }
       headers['Authorization'] = `Bearer ${apiKey}`
     }
@@ -99,8 +99,8 @@ const validateConfig = () => {
   }
   
   const apiKey = process.env.MBD_API_KEY
-  if (!apiKey) {
-    console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
+  if (!apiKey?.startsWith('mbd-')) {
+    console.error('[MBD AI] Invalid API key format. Key should start with "mbd-"')
     return false
   }
   return true

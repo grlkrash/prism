@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const endpoint = searchParams.get('endpoint')
+    const params = searchParams.get('params')
     
     if (!endpoint) {
       return new NextResponse(
@@ -32,7 +33,26 @@ export async function GET(req: NextRequest) {
     }
 
     const headers = MBD_AI_CONFIG.getHeaders()
-    const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, { headers })
+    const url = new URL(`${MBD_AI_CONFIG.API_URL}${endpoint}`)
+    
+    // Add parameters if they exist
+    if (params) {
+      try {
+        const parsedParams = JSON.parse(params)
+        Object.entries(parsedParams).forEach(([key, value]) => {
+          if (value !== undefined) {
+            url.searchParams.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
+          }
+        })
+      } catch (e) {
+        logger.error('Error parsing params:', e)
+      }
+    }
+
+    const response = await fetch(url.toString(), { 
+      headers,
+      next: { revalidate: 60 } // Cache for 1 minute
+    })
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ message: response.statusText }))
@@ -42,7 +62,8 @@ export async function GET(req: NextRequest) {
     const data = await response.json()
     return new NextResponse(JSON.stringify(data), {
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30'
       }
     })
   } catch (error) {

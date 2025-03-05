@@ -16,6 +16,7 @@ import CuratorLeaderboard from '@/components/SocialFi'
 import { TokenGallery } from '@/components/TokenGallery'
 import { AgentChat } from '@/components/agent/agent-chat'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
 // Use the SDK's FrameContext type
 type UserContext = {
@@ -59,6 +60,46 @@ interface Referral {
   reward: number
   timestamp: string
   status: 'pending' | 'completed'
+}
+
+interface Cast {
+  hash: string
+  threadHash?: string
+  parentHash?: string
+  author: {
+    fid: number
+    username: string
+    displayName?: string
+    pfp?: string
+    bio?: string
+  }
+  text: string
+  timestamp: string
+  reactions: {
+    likes: number
+    recasts: number
+  }
+  replies?: {
+    count: number
+  }
+  viewerContext?: {
+    liked: boolean
+    recasted: boolean
+  }
+  labels?: string[]
+  aiAnalysis?: {
+    category: string
+    sentiment: number
+    popularity: number
+    aiScore: number
+    culturalContext: string
+    artStyle?: string
+    isArtwork?: boolean
+    hasCulturalElements?: boolean
+  }
+  metadata?: {
+    culturalScore?: number
+  }
 }
 
 export default function Demo() {
@@ -122,17 +163,21 @@ export default function Demo() {
   const loadInitialData = async (fid?: number) => {
     setIsLoading(true)
     try {
-      // Try to get recommendations first
+      // Try to get recommendations first using the AI agent
       let hasData = false
       
       if (fid) {
         try {
           const response = await sendMessage({
-            message: 'Please recommend some trending cultural tokens based on Farcaster activity',
+            message: 'Please recommend some trending cultural tokens based on Farcaster activity and cultural relevance',
             userId: fid.toString(),
             context: {
               userPreferences: {
-                interests: ['art', 'music', 'culture']
+                interests: ['art', 'music', 'culture'],
+                filters: {
+                  minScore: MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE,
+                  categories: MBD_AI_CONFIG.CULTURAL_TOKEN.INDICATORS.CONTENT
+                }
               }
             }
           })
@@ -150,26 +195,75 @@ export default function Demo() {
       if (!hasData) {
         const trendingFeed = await getTrendingFeed()
         if (trendingFeed.casts) {
-          const newTokens = trendingFeed.casts.map(cast => ({
-            id: cast.hash,
-            name: cast.text.split('\n')[0] || 'Untitled Token',
-            symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
-            description: cast.text,
-            price: 0.001,
-            image: cast.author.pfp,
-            category: 'cultural',
-            social: {
-              website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
-            },
-            metadata: {
-              authorFid: String(cast.author.fid),
-              authorUsername: cast.author.username,
-              timestamp: Number(cast.timestamp),
-              likes: cast.reactions.likes,
-              recasts: cast.reactions.recasts
+          const newTokens = await Promise.all(trendingFeed.casts.map(async cast => {
+            // Extract token info
+            const token: TokenItem = {
+              id: cast.hash,
+              name: cast.text.split('\n')[0] || 'Untitled Token',
+              symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+              description: cast.text,
+              price: 0.001,
+              image: cast.author.pfp,
+              category: cast.aiAnalysis?.category || 'unknown',
+              social: {
+                website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+              },
+              metadata: {
+                authorFid: String(cast.author.fid),
+                authorUsername: cast.author.username,
+                timestamp: Number(cast.timestamp),
+                likes: cast.reactions.likes,
+                recasts: cast.reactions.recasts,
+                category: cast.aiAnalysis?.category,
+                tags: cast.labels,
+                sentiment: cast.aiAnalysis?.sentiment,
+                popularity: cast.aiAnalysis?.popularity,
+                aiScore: cast.aiAnalysis?.aiScore,
+                isCulturalToken: cast.aiAnalysis?.hasCulturalElements || false,
+                artStyle: cast.aiAnalysis?.artStyle,
+                culturalContext: cast.aiAnalysis?.culturalContext
+              }
             }
+
+            // Use the agent to analyze cultural relevance
+            try {
+              const analysis = await sendMessage({
+                message: `Please analyze this token for cultural relevance: ${token.name} (${token.symbol}) - ${token.description}`,
+                userId: fid?.toString(),
+                context: { currentToken: token }
+              })
+
+              if (analysis.metadata?.tokenRecommendations?.[0]) {
+                const recommendation = analysis.metadata.tokenRecommendations[0]
+                return {
+                  ...token,
+                  culturalScore: recommendation.culturalScore,
+                  metadata: {
+                    ...token.metadata,
+                    ...recommendation.metadata
+                  }
+                }
+              }
+            } catch (e) {
+              console.error('Failed to analyze token:', e)
+            }
+
+            return token
           }))
-          setTokens(newTokens)
+
+          // Filter tokens by cultural score and sort by relevance
+          const culturalTokens = newTokens
+            .filter(token => 
+              (token.culturalScore || 0) >= MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE ||
+              token.metadata?.isCulturalToken ||
+              MBD_AI_CONFIG.CULTURAL_TOKEN.INDICATORS.CONTENT.some((indicator: string) => 
+                token.category?.toLowerCase().includes(indicator.toLowerCase()) ||
+                token.metadata?.tags?.some((tag: string) => tag.toLowerCase().includes(indicator.toLowerCase()))
+              )
+            )
+            .sort((a: TokenItem, b: TokenItem) => (b.culturalScore || 0) - (a.culturalScore || 0))
+
+          setTokens(culturalTokens)
         }
         
         if (trendingFeed.next?.cursor) {
