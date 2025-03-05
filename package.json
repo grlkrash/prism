@@ -14,6 +14,7 @@
     "@farcaster/core": "^0.9.0",
     "@farcaster/frame-sdk": "^0.0.30",
     "@farcaster/hub-web": "^0.9.5",
+    "@langchain/community": "^0.3.34",
     "@langchain/core": "^0.3.42",
     "@langchain/langgraph": "^0.2.52",
     "@langchain/openai": "^0.4.4",

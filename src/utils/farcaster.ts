@@ -1,4 +1,4 @@
-import { getFrameMessage, FrameRequest, FrameValidationData } from '@farcaster/frame-sdk'
+import { getFrameMessage, FrameRequest, FrameValidationData } from '@farcaster/frames-sdk'
 import { logger } from './logger'
 
 class FarcasterError extends Error {
