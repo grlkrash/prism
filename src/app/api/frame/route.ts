@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { logger } from '@/utils/logger'
 import { sendMessage } from '@/utils/agentkit'
 import { analyzeToken, getPersonalizedFeed, type Cast, tokenDatabase } from '@/utils/mbdAi'
+import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
 function generateFrameHtml({
   imageUrl = 'https://placehold.co/1200x630/png',
@@ -123,18 +124,19 @@ export async function POST(req: NextRequest) {
         logger.info('Fetching MBD AI recommendations...')
         const feed = await getPersonalizedFeed(fid)
         
-        if (feed?.casts) {
-          const culturalCasts = feed.casts.filter(cast => 
+        if (feed?.data?.casts) {
+          const culturalCasts = feed.data.casts.filter(cast => 
             cast.aiAnalysis?.hasCulturalElements || 
             cast.aiAnalysis?.category?.toLowerCase().includes('art') ||
-            cast.aiAnalysis?.category?.toLowerCase().includes('culture')
+            cast.aiAnalysis?.category?.toLowerCase().includes('culture') ||
+            (cast.aiAnalysis?.aiScore || 0) >= MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE
           )
 
           if (culturalCasts.length > 0) {
             logger.info('MBD AI recommendations received:', culturalCasts.length)
             mbdAiResults = await Promise.all(
               culturalCasts.map(async cast => {
-                const analysis = await analyzeToken(cast)
+                const analysis = await analyzeToken(cast.hash)
                 return {
                   id: cast.hash,
                   name: cast.text.split('\n')[0] || 'Untitled Token',
@@ -146,7 +148,7 @@ export async function POST(req: NextRequest) {
                   tokenType: 'ERC20',
                   metadata: {
                     ...cast.metadata,
-                    aiScore: analysis?.aiScore || 0,
+                    aiScore: analysis?.aiAnalysis?.aiScore || 0,
                     isCulturalToken: true
                   }
                 }

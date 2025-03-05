@@ -1,7 +1,9 @@
 import { farcasterRequest } from './farcaster'
 import { logger } from './logger'
-import { Cast, analyzeToken } from './mbdAi'
+import { Cast, analyzeToken, type Token } from './mbdAi'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
+import { sendMessage } from './agentkit'
+import { getAgent } from '@/config/agentkit'
 
 interface FeedResponse {
   casts: Cast[]
@@ -12,12 +14,61 @@ interface FeedResponse {
 
 export async function getPersonalizedFeed(fid: string, cursor?: string): Promise<FeedResponse> {
   try {
+    // 1. Try AI Agent first
+    try {
+      const agent = await getAgent()
+      const agentResponse = await sendMessage({
+        message: 'Get personalized cultural token feed',
+        userId: fid,
+        context: {
+          cursor,
+          preferences: {
+            interests: ['art', 'culture', 'music'],
+            filters: {
+              minScore: MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE,
+              categories: MBD_AI_CONFIG.CULTURAL_TOKEN.INDICATORS.CONTENT
+            }
+          }
+        }
+      })
+
+      if (agentResponse?.recommendations?.length > 0) {
+        // Convert agent recommendations to casts
+        const casts = agentResponse.recommendations.map(rec => ({
+          hash: rec.symbol.toLowerCase(),
+          threadHash: '',
+          author: {
+            fid: parseInt(fid),
+            username: rec.name,
+            displayName: rec.name,
+            pfp: ''
+          },
+          text: rec.description,
+          timestamp: Date.now().toString(),
+          reactions: { likes: 0, recasts: 0 },
+          aiAnalysis: {
+            category: rec.category || 'art',
+            sentiment: 1,
+            popularity: 1,
+            aiScore: rec.culturalScore || 0.8,
+            culturalContext: rec.description,
+            hasCulturalElements: true
+          }
+        }))
+
+        return { casts }
+      }
+    } catch (agentError) {
+      logger.warn('AI Agent feed failed, falling back to MBD AI:', agentError)
+    }
+
+    // 2. Try MBD AI as fallback
     const endpoint = `/feed?fid=${fid}&limit=20${cursor ? `&cursor=${cursor}` : ''}`
     const response = await farcasterRequest(endpoint)
 
     if (!response || !response.casts) {
-      logger.error('Invalid feed response:', response)
-      return { casts: [] }
+      logger.error('Invalid MBD AI feed response:', response)
+      throw new Error('Invalid feed response')
     }
 
     // Filter and analyze cultural content
@@ -27,21 +78,34 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
           // Skip if already analyzed
           if (cast.aiAnalysis) return cast
 
-          // Analyze cast for cultural elements
-          const analysis = await analyzeToken(cast)
+          // Convert cast to token format for analysis
+          const token: Token = {
+            id: cast.hash,
+            name: cast.text.split('\n')[0] || 'Untitled',
+            symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+            description: cast.text,
+            imageUrl: cast.author.pfp || '',
+            artistName: cast.author.displayName || cast.author.username,
+            price: '0.001',
+            culturalScore: 0,
+            tokenType: 'ERC20'
+          }
+
+          // Analyze token
+          const analysis = await analyzeToken(token)
           
           return {
             ...cast,
             aiAnalysis: {
-              category: analysis?.category || 'unknown',
-              sentiment: analysis?.sentiment || 0,
-              popularity: analysis?.popularity || 0,
-              aiScore: analysis?.aiScore || 0,
-              culturalContext: analysis?.culturalContext || '',
+              category: analysis.metadata?.category || 'unknown',
+              sentiment: analysis.metadata?.sentiment || 0,
+              popularity: analysis.metadata?.popularity || 0,
+              aiScore: analysis.culturalScore || 0,
+              culturalContext: analysis.metadata?.culturalContext || '',
               hasCulturalElements: 
-                analysis?.category?.toLowerCase().includes('art') ||
-                analysis?.category?.toLowerCase().includes('culture') ||
-                (analysis?.aiScore || 0) >= MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE
+                analysis.metadata?.category?.toLowerCase().includes('art') ||
+                analysis.metadata?.category?.toLowerCase().includes('culture') ||
+                (analysis.culturalScore || 0) >= MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE
             }
           }
         } catch (error) {
@@ -64,7 +128,31 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
       next: response.next
     }
   } catch (error) {
-    logger.error('Error fetching personalized feed:', error)
-    return { casts: [] }
+    logger.error('Error fetching feed, using mock data:', error)
+    
+    // 3. Use mock data as final fallback
+    return {
+      casts: [{
+        hash: 'mock1',
+        threadHash: '',
+        author: {
+          fid: 1,
+          username: 'mockartist',
+          displayName: 'Mock Artist',
+          pfp: ''
+        },
+        text: 'Mock cultural token #1',
+        timestamp: Date.now().toString(),
+        reactions: { likes: 0, recasts: 0 },
+        aiAnalysis: {
+          category: 'art',
+          sentiment: 1,
+          popularity: 1,
+          aiScore: 0.8,
+          culturalContext: 'Mock cultural context',
+          hasCulturalElements: true
+        }
+      }]
+    }
   }
 } 

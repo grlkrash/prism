@@ -13,20 +13,41 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { sendMessage } from '@/utils/agentkit'
 import { getTrendingFeed, analyzeToken, type Cast as MbdCast } from '@/utils/mbdAi'
 import type { TokenItem } from '@/types/token'
-import sdk, { type FrameContext } from '@farcaster/frame-sdk'
+import sdk from '@farcaster/frame-sdk'
 import CuratorLeaderboard from '@/components/SocialFi'
 import { TokenGallery } from '@/components/TokenGallery'
 import { AgentChat } from '@/components/agent/agent-chat'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 import { logger } from '@/utils/logger'
+import { getFrameMessage, validateFrameMessage } from '@farcaster/frame-sdk'
 
-// Use the SDK's FrameContext type
-type UserContext = {
-  fid: number
-  username?: string
-  displayName?: string
-  pfpUrl?: string
+// Define Frame context types based on official docs
+interface FrameContext {
+  location: {
+    type: 'cast_embed' | 'channel' | 'user' | 'link' | 'direct_cast_embed'
+    cast?: {
+      fid: number
+      hash: string
+      text: string
+      embeds?: string[]
+    }
+    channel?: {
+      key: string
+      name: string
+      imageUrl: string
+    }
+    profile?: {
+      fid: number
+      username: string
+      displayName?: string
+      pfpUrl?: string
+    }
+    url?: string
+  }
+  buttonIndex?: number
+  inputText?: string
+  state?: string
 }
 
 interface TokenMetadata {
@@ -109,7 +130,7 @@ export default function Demo() {
   const config = useConfig()
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [context, setContext] = useState<FrameContext>()
+  const [context, setContext] = useState<FrameContext | null>(null)
   const [ethAmount, setEthAmount] = useState<string>('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isContextOpen, setIsContextOpen] = useState(false)
@@ -139,15 +160,22 @@ export default function Demo() {
         // Wait for SDK to be ready
         await new Promise(resolve => setTimeout(resolve, 100))
         
-        // Get context first
-        const ctx = await sdk.context
-        setContext(ctx)
-        logger.info('Frame context loaded:', ctx)
+        // Get frame message
+        const message = await getFrameMessage()
+        if (!message) {
+          logger.error('No frame message found')
+          return
+        }
 
-        // Signal ready to Warpcast
-        await sdk.actions.ready()
-        logger.info('Frame ready signal sent')
-        
+        // Validate the message
+        const isValid = await validateFrameMessage(message)
+        if (!isValid) {
+          logger.error('Invalid frame message')
+          return
+        }
+
+        setContext(message)
+        logger.info('Frame context loaded:', message)
         setIsSDKLoaded(true)
       } catch (error) {
         logger.error('Error initializing frame:', error)
@@ -446,6 +474,12 @@ export default function Demo() {
     return () => observer.disconnect()
   }, [hasMore, isLoading, loadMore])
 
+  // Share action
+  const handleShare = useCallback((token: TokenItem) => {
+    const shareUrl = `https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`
+    window.open(shareUrl, '_blank')
+  }, [])
+
   // Buy action
   const handleBuy = useCallback((token: TokenItem) => {
     if (!isConnected) {
@@ -461,26 +495,9 @@ export default function Demo() {
       return
     }
 
-    if (sdk.actions) {
-      sdk.actions.openUrl(`https://base.org/swap?token=${token.id}&amount=${ethAmount}`)
-    } else {
-      sendTransaction({
-        to: contractAddress as `0x${string}`,
-        value: BigInt(ethAmount),
-        data: '0x'
-      })
-    }
-  }, [ethAmount, isConnected, connectWallet, sendTransaction, config.connectors])
-
-  // Share action
-  const handleShare = useCallback((token: TokenItem) => {
-    if (sdk.actions) {
-      sdk.actions.openUrl(`https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`)
-    } else {
-      const shareUrl = `https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`
-      window.open(shareUrl, '_blank')
-    }
-  }, [])
+    const swapUrl = `https://base.org/swap?token=${token.id}&amount=${ethAmount}`
+    window.open(swapUrl, '_blank')
+  }, [ethAmount, isConnected, connectWallet, config.connectors])
 
   const toggleContext = useCallback(() => {
     setIsContextOpen((prev) => !prev)
@@ -488,11 +505,11 @@ export default function Demo() {
 
   // Load friend activities
   const loadFriendActivities = useCallback(async () => {
-    if (!context?.fid) return
+    if (!context?.location.profile?.fid) return
     try {
       const response = await sendMessage({
         message: 'Get friend activities',
-        userId: context.fid.toString(),
+        userId: context.location.profile.fid.toString(),
         context: { type: 'friend_activity' }
       })
       if (response.metadata?.friendActivities) {
@@ -501,20 +518,20 @@ export default function Demo() {
     } catch (error) {
       console.error('Failed to load friend activities:', error)
     }
-  }, [context?.fid])
+  }, [context?.location.profile?.fid])
 
   // Load referrals
   const loadReferrals = useCallback(async () => {
-    if (!context?.fid) return
+    if (!context?.location.profile?.fid) return
     try {
       const response = await sendMessage({
         message: 'Get referrals',
-        userId: context.fid.toString(),
+        userId: context.location.profile.fid.toString(),
         context: { type: 'referrals' }
       })
       if (response.metadata?.referrals) {
         const mappedReferrals: Referral[] = response.metadata.referrals.map(ref => ({
-          userId: ref.referrerId || context.fid.toString(),
+          userId: ref.referrerId || context.location.profile.fid.toString(),
           referredId: ref.referredId,
           reward: ref.reward,
           timestamp: ref.timestamp,
@@ -525,7 +542,7 @@ export default function Demo() {
     } catch (error) {
       console.error('Failed to load referrals:', error)
     }
-  }, [context?.fid])
+  }, [context?.location.profile?.fid])
 
   // Load data when tab changes
   useEffect(() => {
@@ -572,7 +589,7 @@ export default function Demo() {
       }
     }
 
-    if (isSDKLoaded && context?.fid) {
+    if (isSDKLoaded && context?.location.profile?.fid) {
       loadInitialTokens()
     }
   }, [isSDKLoaded, context])

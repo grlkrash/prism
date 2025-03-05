@@ -2,7 +2,6 @@
   "name": "prism",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -14,7 +13,7 @@
   },
   "dependencies": {
     "@coinbase/agentkit": "^0.2.3",
-    "@farcaster/frame-sdk": "^0.0.30",
+    "@farcaster/frame-sdk": "^0.0.31",
     "@farcaster/hub-nodejs": "^0.12.7",
     "@langchain/core": "^0.3.42",
     "@langchain/openai": "^0.4.4",
