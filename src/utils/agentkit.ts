@@ -41,43 +41,59 @@ export async function trackFriendActivity(activity: FriendActivity) {
   return activity
 }
 
-export async function getFriendActivities(userId: string, category?: FriendActivity['category']): Promise<FriendActivity[]> {
+export async function getFriendActivities(userId?: string) {
   try {
-    // Get user's following list
-    const following = await getFarcasterFollowing(userId)
-    const activities: FriendActivity[] = []
-
-    // Get recent casts from each followed user
-    for (const friend of following) {
-      const casts = await getFarcasterCasts(String(friend.fid), 5)
-      
-      for (const cast of casts) {
-        const tokenMentions = extractTokenMentions(cast.text)
-        
-        for (const mention of tokenMentions) {
-          // Only include if it matches the requested category
-          if (!category || mention.category === category) {
-            activities.push({
-              userId: String(friend.fid),
-              username: friend.username,
-              action: cast.reactions.likes > 0 ? 'buy' : 'share',
-              tokenId: mention.tokenId,
-              timestamp: cast.timestamp,
-              category: mention.category as FriendActivity['category'],
-              culturalContext: cast.text
-            })
-          }
-        }
-      }
+    // If no userId provided, return Dan Romero's activity
+    if (!userId) {
+      const danRomeroCasts = await getFarcasterCasts('3', 10)
+      return danRomeroCasts.map(cast => ({
+        username: 'danromero',
+        action: 'interacted with',
+        tokenId: cast.hash,
+        timestamp: cast.timestamp
+      }))
     }
 
-    // Sort by timestamp, most recent first
-    return activities.sort((a, b) => 
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    const following = await getFarcasterFollowing(userId)
+    if (!following?.length) {
+      // If no following found, return Dan Romero's activity
+      const danRomeroCasts = await getFarcasterCasts('3', 10)
+      return danRomeroCasts.map(cast => ({
+        username: 'danromero',
+        action: 'interacted with',
+        tokenId: cast.hash,
+        timestamp: cast.timestamp
+      }))
+    }
+    
+    const activities = await Promise.all(
+      following.map(async (fid) => {
+        const feed = await getPersonalizedFeed(fid)
+        return feed?.casts?.map((cast: Cast) => ({
+          username: cast.author.username,
+          action: 'interacted with',
+          tokenId: cast.hash,
+          timestamp: cast.timestamp
+        })) || []
+      })
     )
+    
+    return activities.flat().sort((a, b) => b.timestamp - a.timestamp)
   } catch (error) {
     logger.error('Error fetching friend activities:', error)
-    return []
+    // On error, return Dan Romero's activity as fallback
+    try {
+      const danRomeroCasts = await getFarcasterCasts('3', 10)
+      return danRomeroCasts.map(cast => ({
+        username: 'danromero',
+        action: 'interacted with',
+        tokenId: cast.hash,
+        timestamp: cast.timestamp
+      }))
+    } catch (fallbackError) {
+      logger.error('Error fetching Dan Romero activity:', fallbackError)
+      return []
+    }
   }
 }
 
@@ -98,6 +114,15 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
 
     const result = await agent.invoke(validatedRequest)
     const agentResponse = result.response
+
+    // Log the raw response for debugging
+    logger.info('Raw agent response:', {
+      content: agentResponse.content,
+      hasRecommendations: Array.isArray(agentResponse.recommendations),
+      recommendationsCount: agentResponse.recommendations?.length,
+      hasActions: Array.isArray(agentResponse.actions),
+      actionsCount: agentResponse.actions?.length
+    })
     
     // Add friend activities to response if requested
     let friendActivities: FriendActivity[] = []
@@ -105,31 +130,39 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
       try {
         friendActivities = await getFriendActivities(validatedRequest.userId)
       } catch (error) {
-        console.error('Error fetching friend activities:', error)
+        logger.error('Error fetching friend activities:', error)
       }
     }
+
+    // Process recommendations to ensure they have all required fields
+    const tokenRecommendations = Array.isArray(agentResponse.recommendations) ? 
+      agentResponse.recommendations.map(rec => ({
+        id: rec.id || crypto.randomUUID(),
+        name: rec.name,
+        symbol: rec.symbol,
+        description: rec.description,
+        culturalScore: rec.culturalScore || Math.floor(Math.random() * 100),
+        category: rec.category || 'art',
+        tags: rec.tags || ['art', 'culture']
+      })) : []
+
+    // Process actions to ensure they have all required fields
+    const actions = Array.isArray(agentResponse.actions) ?
+      agentResponse.actions.map(action => ({
+        type: action.type,
+        tokenId: action.tokenId,
+        label: action.label
+      })) : []
 
     // Ensure we have a valid response object
     const responseObj = {
       id: crypto.randomUUID(),
-      content: typeof agentResponse === 'string' ? 
-        agentResponse : 
-        typeof agentResponse.content === 'string' ? 
-          agentResponse.content : 
-          'No response content',
+      content: agentResponse.content || 'No response content',
       role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
-        tokenRecommendations: Array.isArray(agentResponse.recommendations) ? 
-          agentResponse.recommendations.map(rec => ({
-            ...rec,
-            id: rec.id || crypto.randomUUID(),
-            culturalScore: rec.culturalScore || Math.random() * 100,
-            category: rec.category || 'art',
-            tags: rec.tags || ['art', 'culture']
-          })) : [],
-        actions: Array.isArray(agentResponse.actions) ? 
-          agentResponse.actions : [],
+        tokenRecommendations,
+        actions,
         friendActivities,
         referrals: []
       }
@@ -140,14 +173,23 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
       try {
         responseObj.metadata.referrals = await getReferrals(validatedRequest.userId)
       } catch (error) {
-        console.error('Error fetching referrals:', error)
+        logger.error('Error fetching referrals:', error)
       }
     }
+
+    // Log the final response for debugging
+    logger.info('Final response:', {
+      hasContent: !!responseObj.content,
+      recommendationsCount: responseObj.metadata.tokenRecommendations.length,
+      actionsCount: responseObj.metadata.actions.length,
+      friendActivitiesCount: responseObj.metadata.friendActivities.length,
+      referralsCount: responseObj.metadata.referrals.length
+    })
 
     // Validate the response against our schema
     return agentResponseSchema.parse(responseObj)
   } catch (error) {
-    console.error('Error in sendMessage:', error)
+    logger.error('Error in sendMessage:', error)
     
     // Return a valid error response that matches our schema
     return agentResponseSchema.parse({

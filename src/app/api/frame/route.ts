@@ -1,14 +1,10 @@
 import { NextRequest } from 'next/server'
-import { PinataFDK } from 'pinata-fdk'
 import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
-import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast } from '@/utils/mbdAi'
+import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast, validateFrameRequest } from '@/utils/mbdAi'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { OpenAI } from 'openai'
-
-// Initialize FDK
-const fdk = new PinataFDK()
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -42,17 +38,6 @@ async function convertTokenForAI(token: TokenItem) {
   } catch (error) {
     logger.error('Error in AI conversion:', error)
     return token
-  }
-}
-
-// Validate frame request
-async function validateFrameRequest(body: any): Promise<{ isValid: boolean; message?: any }> {
-  try {
-    const { isValid, message } = await fdk.validateFrameMessage(body)
-    return { isValid, message }
-  } catch (error) {
-    logger.error('Frame validation error:', error)
-    return { isValid: false }
   }
 }
 
@@ -147,8 +132,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { isValid, message } = await validateFrameRequest(body)
+    const { isValid, message } = await validateFrameRequest(req)
 
     if (!isValid) {
       return new Response(
@@ -162,8 +146,8 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const fid = message?.data?.fid
-    const buttonIndex = message?.data?.frameActionBody?.buttonIndex || 1
+    const fid = message?.fid
+    const buttonIndex = message?.button || 1
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
 
