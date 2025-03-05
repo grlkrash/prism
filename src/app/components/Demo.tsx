@@ -197,20 +197,37 @@ export default function Demo() {
         // 2. MBD AI with cultural filtering
         (async () => {
           console.log('[Demo] Requesting MBD AI cultural tokens')
-          const response = await fetch('/api/mbd?endpoint=/v2/discover-actions', {
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json'
+          try {
+            const response = await fetch('/api/mbd?endpoint=/v2/discover-actions', {
+              headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+              }
+            })
+            
+            if (!response.ok) {
+              const errorText = await response.text()
+              console.error('[Demo] MBD AI request failed:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+              })
+              throw new Error(`MBD AI request failed: ${response.status} ${response.statusText}`)
             }
-          })
-          const data = await response.json()
-          console.log('[Demo] MBD AI response:', {
-            success: response.ok,
-            status: response.status,
-            hasCasts: !!data?.casts,
-            castCount: data?.casts?.length || 0
-          })
-          return data
+            
+            const data = await response.json()
+            console.log('[Demo] MBD AI response:', {
+              success: response.ok,
+              status: response.status,
+              hasCasts: !!data?.casts,
+              castCount: data?.casts?.length || 0,
+              firstCast: data?.casts?.[0] || null
+            })
+            return data
+          } catch (error) {
+            console.error('[Demo] MBD AI request error:', error)
+            throw error
+          }
         })()
       ])
 

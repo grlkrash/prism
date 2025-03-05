@@ -3,6 +3,14 @@ import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
 export async function GET(req: NextRequest) {
   try {
+    // Debug environment variables
+    console.log('[MBD API] Environment check:', {
+      NODE_ENV: process.env.NODE_ENV,
+      hasApiKey: !!process.env.MBD_API_KEY,
+      apiKeyLength: process.env.MBD_API_KEY?.length,
+      apiUrl: process.env.MBD_AI_API_URL
+    })
+
     const endpoint = req.nextUrl.searchParams.get('endpoint')
     if (!endpoint) {
       return NextResponse.json({ error: 'Missing endpoint parameter' }, { status: 400 })
@@ -58,14 +66,21 @@ export async function GET(req: NextRequest) {
       }
     })
 
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'User-Agent': 'Prism/1.0'
+    }
+
+    console.log('[MBD API] Request headers:', {
+      ...headers,
+      'Authorization': 'Bearer [REDACTED]'
+    })
+
     const response = await fetch(url.toString(), {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'User-Agent': 'Prism/1.0'
-      }
+      headers
     })
 
     if (!response.ok) {
@@ -82,7 +97,9 @@ export async function GET(req: NextRequest) {
       if (response.status === 403) {
         return NextResponse.json({ 
           error: 'Authentication failed', 
-          details: 'Invalid or expired API key' 
+          details: 'Invalid or expired API key',
+          apiKeyLength: apiKey?.length,
+          apiKeyPrefix: apiKey?.substring(0, 4)
         }, { status: 403 })
       }
 
@@ -98,23 +115,39 @@ export async function GET(req: NextRequest) {
       console.error('[MBD API] Invalid response format:', data)
       return NextResponse.json({ 
         error: 'Invalid API response format',
-        details: 'Response missing required data'
+        details: 'Response missing required data',
+        receivedData: data
       }, { status: 502 })
     }
 
-    // Filter cultural tokens
+    // Filter cultural tokens with more detailed logging
     const culturalCasts = data.casts.filter((cast: any) => {
       const analysis = cast.aiAnalysis || {}
-      return analysis.hasCulturalElements || 
-             analysis.category?.toLowerCase().includes('art') ||
-             analysis.category?.toLowerCase().includes('music') ||
-             analysis.category?.toLowerCase().includes('culture')
+      const isCultural = analysis.hasCulturalElements || 
+                        analysis.category?.toLowerCase().includes('art') ||
+                        analysis.category?.toLowerCase().includes('music') ||
+                        analysis.category?.toLowerCase().includes('culture')
+      
+      if (isCultural) {
+        console.log('[MBD API] Found cultural cast:', {
+          id: cast.hash,
+          category: analysis.category,
+          hasCulturalElements: analysis.hasCulturalElements,
+          aiScore: analysis.aiScore
+        })
+      }
+      
+      return isCultural
     })
 
     console.log('[MBD API] Success:', {
       totalCasts: data.casts.length,
       culturalCasts: culturalCasts.length,
-      hasCursor: !!data.next?.cursor
+      hasCursor: !!data.next?.cursor,
+      sampleCast: culturalCasts[0] ? {
+        id: culturalCasts[0].hash,
+        category: culturalCasts[0].aiAnalysis?.category
+      } : null
     })
 
     return NextResponse.json({
