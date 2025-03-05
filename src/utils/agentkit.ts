@@ -2,7 +2,9 @@ import { AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, g
 import { logger } from './logger'
 import { analyzeToken, Token } from './mbdAi'
 import { HumanMessage } from "@langchain/core/messages"
-import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions } from './farcaster'
+import { getFarcasterFollowing, getFarcasterCasts } from './farcaster'
+import { getPersonalizedFeed } from './feed'
+import { Cast } from './mbdAi'
 
 // SocialFi types
 interface FriendActivity {
@@ -46,7 +48,7 @@ export async function getFriendActivities(userId?: string) {
     // If no userId provided, return Dan Romero's activity
     if (!userId) {
       const danRomeroCasts = await getFarcasterCasts('3', 10)
-      return danRomeroCasts.map(cast => ({
+      return danRomeroCasts.map((cast: { hash: string; timestamp: string }) => ({
         username: 'danromero',
         action: 'interacted with',
         tokenId: cast.hash,
@@ -58,7 +60,7 @@ export async function getFriendActivities(userId?: string) {
     if (!following?.length) {
       // If no following found, return Dan Romero's activity
       const danRomeroCasts = await getFarcasterCasts('3', 10)
-      return danRomeroCasts.map(cast => ({
+      return danRomeroCasts.map((cast: { hash: string; timestamp: string }) => ({
         username: 'danromero',
         action: 'interacted with',
         tokenId: cast.hash,
@@ -67,9 +69,9 @@ export async function getFriendActivities(userId?: string) {
     }
     
     const activities = await Promise.all(
-      following.map(async (fid) => {
+      following.map(async (fid: string) => {
         const feed = await getPersonalizedFeed(fid)
-        return feed?.casts?.map((cast: Cast) => ({
+        return feed?.casts?.map((cast) => ({
           username: cast.author.username,
           action: 'interacted with',
           tokenId: cast.hash,
@@ -84,7 +86,7 @@ export async function getFriendActivities(userId?: string) {
     // On error, return Dan Romero's activity as fallback
     try {
       const danRomeroCasts = await getFarcasterCasts('3', 10)
-      return danRomeroCasts.map(cast => ({
+      return danRomeroCasts.map((cast: { hash: string; timestamp: string }) => ({
         username: 'danromero',
         action: 'interacted with',
         tokenId: cast.hash,
@@ -137,7 +139,7 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
     // Process recommendations to ensure they have all required fields
     const tokenRecommendations = Array.isArray(agentResponse.recommendations) ? 
       agentResponse.recommendations.map(rec => ({
-        id: rec.id || crypto.randomUUID(),
+        id: crypto.randomUUID(),
         name: rec.name,
         symbol: rec.symbol,
         description: rec.description,
@@ -155,7 +157,7 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
       })) : []
 
     // Ensure we have a valid response object
-    const responseObj = {
+    const responseObj: AgentResponse = {
       id: crypto.randomUUID(),
       content: agentResponse.content || 'No response content',
       role: 'assistant',

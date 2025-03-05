@@ -25,7 +25,7 @@ export class FarcasterError extends Error {
   }
 }
 
-async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
+export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
   const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'http://localhost:3003'
   const url = new URL(baseUrl)
   url.pathname = '/api/farcaster'

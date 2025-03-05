@@ -19,25 +19,11 @@ export async function POST(request: Request) {
     // Log the response for debugging
     logger.info('Agent response:', {
       hasContent: !!response.content,
-      hasRecommendations: Array.isArray(response.recommendations) && response.recommendations.length > 0,
-      hasActions: Array.isArray(response.actions) && response.actions.length > 0
+      hasRecommendations: Array.isArray(response.metadata?.tokenRecommendations) && response.metadata.tokenRecommendations.length > 0,
+      hasActions: Array.isArray(response.metadata?.actions) && response.metadata.actions.length > 0
     });
 
-    // Ensure we have a valid response
-    const validResponse = {
-      id: crypto.randomUUID(),
-      content: response.content || 'No response content',
-      role: 'assistant',
-      timestamp: new Date().toISOString(),
-      metadata: {
-        tokenRecommendations: response.recommendations || [],
-        actions: response.actions || [],
-        friendActivities: [],
-        referrals: []
-      }
-    };
-
-    return NextResponse.json(validResponse);
+    return NextResponse.json(response);
   } catch (error) {
     logger.error('Error in agent route:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';

@@ -599,14 +599,9 @@ export interface FrameMessage {
 export async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
     const body = await req.json()
-    const { untrustedData } = body
+    const { buttonIndex, fid } = body
 
-    if (!untrustedData) {
-      return { isValid: false }
-    }
-
-    const { buttonIndex, fid } = untrustedData
-
+    // Validate button index
     if (!buttonIndex || buttonIndex < 1 || buttonIndex > 4) {
       return { isValid: false }
     }
