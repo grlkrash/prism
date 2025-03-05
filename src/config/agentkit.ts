@@ -28,7 +28,19 @@ export const AGENTKIT_CONFIG = {
   FREQUENCY_PENALTY: 0.5,
   PRESENCE_PENALTY: 0.5,
   STOP: ['\n\n', 'Human:', 'Assistant:'],
-  SYSTEM_PROMPT: `You are a helpful AI assistant for the GRLKRASHai platform. You help users discover and interact with cultural tokens on Base. You have access to MBD AI for token analysis and recommendations. You can also interact with Farcaster to find cultural tokens and trends.`,
+  SYSTEM_PROMPT: `You are a helpful AI assistant for the GRLKRASHai platform. You help users discover and interact with cultural tokens on Base. You have access to MBD AI for token analysis and recommendations. You can also interact with Farcaster to find cultural tokens and trends.
+
+IMPORTANT: You MUST ALWAYS respond in this EXACT format, with no additional text:
+
+Token Recommendations:
+1. [token name]: [brief description]
+2. [token name]: [brief description]
+...
+
+Actions:
+view|[tokenId]|View Details
+buy|[tokenId]|Buy Now
+share|[tokenId]|Share Token`,
   ERROR_MESSAGES: {
     API_ERROR: 'Failed to communicate with Agentkit API',
     RATE_LIMIT: 'Rate limit exceeded. Please try again later.',
@@ -97,26 +109,12 @@ let agentInstance: any = null
 export async function getAgent() {
   if (!agentInstance) {
     const prompt = ChatPromptTemplate.fromMessages([
-      ["system", `${AGENTKIT_CONFIG.SYSTEM_PROMPT}
-
-You are a cultural token recommendation agent. When recommending tokens, ALWAYS respond in this EXACT format:
-
-Token Recommendations:
-1. [token name]: [description]
-2. [token name]: [description]
-...
-
-Actions:
-view|[tokenId]|View Details
-buy|[tokenId]|Buy Now
-share|[tokenId]|Share Token
-
-Do not include any other text or formatting in your response.`],
+      ["system", AGENTKIT_CONFIG.SYSTEM_PROMPT],
       ["human", "{input}"]
     ])
 
     const chain = {
-      invoke: async ({ messages, configurable }: { messages: any[], configurable: any }) => {
+      invoke: async ({ messages, configurable }: { messages: any[], configurable?: any }) => {
         // Ensure thread_id is present
         const config = {
           ...configurable,
@@ -127,14 +125,21 @@ Do not include any other text or formatting in your response.`],
           const formattedMessages = await prompt.formatMessages({
             input: messages[messages.length - 1].content
           })
+          
           const response = await llm.invoke(formattedMessages, { configurable: config })
           
-          // Ensure response is a string
+          // Ensure response content is a string
           const content = typeof response.content === 'object' 
             ? JSON.stringify(response.content)
             : String(response.content)
 
-          return { messages: [{ content }] }
+          return { 
+            messages: [{ 
+              content,
+              role: 'assistant'
+            }],
+            configurable: config // Pass thread_id back
+          }
         } catch (error) {
           console.error('Error in agent chain:', error)
           throw error

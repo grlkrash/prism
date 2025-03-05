@@ -9,14 +9,13 @@ import {
   cdpWalletActionProvider,
   pythActionProvider,
 } from "@coinbase/agentkit"
-import { AGENTKIT_CONFIG, AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, actionProviders } from '@/config/agentkit'
+import { AGENTKIT_CONFIG, AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema } from '@/config/agentkit'
 import { logger } from './logger'
 import { analyzeToken } from './mbdAi'
 import { getLangChainTools } from "@coinbase/agentkit-langchain"
 import { HumanMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
 import { ChatOpenAI } from "@langchain/openai"
-import { AgentExecutor } from "@langchain/core/agents"
 import { createReactAgent } from "@langchain/langgraph/prebuilt"
 
 class AgentkitError extends Error {
@@ -78,7 +77,7 @@ async function initializeAgent() {
 
     const walletProvider = await CdpWalletProvider.configureWithWallet(config)
 
-    // Initialize AgentKit
+    // Initialize AgentKit with all action providers
     const agentkit = await AgentKit.from({
       walletProvider,
       actionProviders: [
@@ -93,33 +92,35 @@ async function initializeAgent() {
 
     const tools = await getLangChainTools(agentkit)
 
-    // Create React Agent with proper thread_id configuration
-    const agent = createReactAgent({
+    // Create React Agent with memory and thread_id
+    const agent = await createReactAgent({
       llm,
       tools,
       checkpointSaver: memory,
       messageModifier: AGENTKIT_CONFIG.SYSTEM_PROMPT,
     })
 
-    // Wrap the agent to inject thread_id into each call
-    const wrappedAgent = {
-      invoke: async (input: any) => {
-        return agent.invoke(input, {
-          configurable: {
-            thread_id: `grlkrash-agent-${crypto.randomUUID()}`
-          }
-        })
-      },
-      stream: async (input: any) => {
-        return agent.stream(input, {
-          configurable: {
-            thread_id: `grlkrash-agent-${crypto.randomUUID()}`
-          }
-        })
+    // Wrap agent to ensure thread_id is always present
+    return {
+      invoke: async ({ messages, configurable }: { messages: any[], configurable?: any }) => {
+        const config = {
+          ...configurable,
+          thread_id: configurable?.thread_id || `grlkrash-agent-${crypto.randomUUID()}`
+        }
+
+        const response = await agent.invoke(messages, { configurable: config })
+        
+        // Ensure response content is a string
+        const content = typeof response.content === 'object' 
+          ? JSON.stringify(response.content)
+          : String(response.content)
+
+        return {
+          messages: [{ content, role: 'assistant' }],
+          configurable: config
+        }
       }
     }
-
-    return wrappedAgent
   } catch (error) {
     logger.error('Failed to initialize agent:', error)
     throw error
@@ -157,21 +158,20 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
       configurable: { thread_id: threadId }
     })
 
-    // Extract content from result
-    let content = ''
-    if (result?.messages?.[0]?.content) {
-      content = result.messages[0].content
-    }
+    // Extract content and ensure it's a string
+    const content = typeof result.messages[0].content === 'object'
+      ? JSON.stringify(result.messages[0].content)
+      : String(result.messages[0].content)
 
     // Extract recommendations and actions
     const tokenRecommendations = extractTokenRecommendations(content)
     const actions = extractActions(content)
 
-    // Validate response format
-    const response = {
+    // Construct and validate response
+    const response: AgentResponse = {
       id: threadId,
       content,
-      role: 'assistant' as const,
+      role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
         tokenRecommendations,
@@ -193,7 +193,16 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
   }
 }
 
-function extractTokenRecommendations(content: unknown): any[] {
+interface TokenRecommendation {
+  id: string
+  name: string
+  description: string
+  imageUrl: string
+  price: string
+  culturalScore: number
+}
+
+function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
   try {
     if (!content) return []
     
@@ -206,13 +215,13 @@ function extractTokenRecommendations(content: unknown): any[] {
     try {
       const parsed = JSON.parse(contentStr)
       if (Array.isArray(parsed?.recommendations)) {
-        return parsed.recommendations.map(rec => ({
+        return parsed.recommendations.map((rec: any) => ({
           id: crypto.randomUUID(),
           name: rec.name || 'Unknown Token',
           description: rec.description || '',
           imageUrl: rec.imageUrl || '',
           price: rec.price || '0',
-          culturalScore: Math.random() * 100
+          culturalScore: rec.culturalScore || Math.floor(Math.random() * 100)
         }))
       }
     } catch (e) {
@@ -227,20 +236,21 @@ function extractTokenRecommendations(content: unknown): any[] {
     const recommendations = recommendationsText.split('\n')
       .filter(line => line.trim())
       .map(line => {
-        const match = line.match(/\d+\.\s*([^:]+):\s*(.+)/)
+        // Match numbered items like "1. TokenName: Description"
+        const match = line.match(/^\d+\.\s*([^:]+):\s*(.+)/)
         if (!match) return null
         
         return {
           id: crypto.randomUUID(),
           name: match[1].trim(),
           description: match[2].trim(),
-          imageUrl: '', // Will be populated by MBD AI
+          imageUrl: '', // Will be populated by MBD AI later
           price: '0',
-          culturalScore: Math.random() * 100
+          culturalScore: Math.floor(Math.random() * 100)
         }
       })
-      .filter(Boolean)
-    
+      .filter((rec): rec is TokenRecommendation => rec !== null)
+
     return recommendations
   } catch (error) {
     logger.error('Error extracting recommendations:', error)
