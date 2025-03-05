@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { logger } from './logger'
 
 export interface Token {
   id: number
@@ -140,12 +141,48 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
-async function makeMbdRequest(endpoint: string, data: any, userId?: string) {
+// API Response Types
+interface MbdApiResponse<T> {
+  data: T
+  error?: {
+    code: string
+    message: string
+  }
+}
+
+interface ContentAnalysis {
+  category: string
+  tags: string[]
+  sentiment: number
+  popularity: number
+  aiScore: number
+  culturalContext: string
+  artistBio: string
+}
+
+interface ImageAnalysis {
+  artStyle: string
+  isArtwork: boolean
+  hasCulturalElements: boolean
+  hasAudioElements: boolean
+  hasMediaElements: boolean
+}
+
+interface RecommendationsResponse {
+  tokens: Token[]
+  nextPage?: string
+}
+
+// Update makeMbdRequest to use generic type
+async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): Promise<T> {
   try {
     // Check rate limit if userId is provided
     if (userId && !checkRateLimit(userId)) {
+      logger.warn('Rate limit exceeded', { userId, endpoint }, userId)
       throw new RateLimitError('Rate limit exceeded. Please try again later.')
     }
+
+    logger.debug('Making MBD AI request', { endpoint, data }, userId)
 
     const response = await fetch(`${MBD_API_URL}${endpoint}`, {
       method: 'POST',
@@ -158,6 +195,11 @@ async function makeMbdRequest(endpoint: string, data: any, userId?: string) {
 
     if (!response.ok) {
       const error = await response.json()
+      logger.error('MBD AI API request failed', { 
+        status: response.status, 
+        error,
+        endpoint 
+      }, userId)
       throw new MbdApiError(
         error.message || 'MBD AI API request failed',
         response.status,
@@ -165,19 +207,35 @@ async function makeMbdRequest(endpoint: string, data: any, userId?: string) {
       )
     }
 
-    return response.json()
+    const result: MbdApiResponse<T> = await response.json()
+    
+    if (result.error) {
+      logger.error('MBD AI API returned error', { 
+        error: result.error,
+        endpoint 
+      }, userId)
+      throw new MbdApiError(result.error.message, undefined, result.error.code)
+    }
+
+    logger.debug('MBD AI request successful', { endpoint }, userId)
+    return result.data
   } catch (error) {
     if (error instanceof MbdApiError) {
       throw error
     }
-    console.error(`MBD AI API Error (${endpoint}):`, error)
+    logger.error('Failed to communicate with MBD AI API', { 
+      error,
+      endpoint 
+    }, userId)
     throw new MbdApiError('Failed to communicate with MBD AI API')
   }
 }
 
 export async function analyzeToken(token: Token, userId?: string) {
   try {
-    const contentAnalysis = await makeMbdRequest('/analyze', {
+    logger.info('Analyzing token', { tokenId: token.id }, userId)
+    
+    const contentAnalysis = await makeMbdRequest<ContentAnalysis>('/analyze', {
       token: {
         name: token.name,
         description: token.description,
@@ -188,6 +246,12 @@ export async function analyzeToken(token: Token, userId?: string) {
 
     const imageAnalysis = await analyzeImage(token.imageUrl, userId)
     const isCulturalToken = determineIfCulturalToken(contentAnalysis, imageAnalysis)
+    
+    logger.info('Token analysis complete', { 
+      tokenId: token.id,
+      isCulturalToken,
+      category: contentAnalysis.category 
+    }, userId)
     
     return {
       ...token,
@@ -208,7 +272,10 @@ export async function analyzeToken(token: Token, userId?: string) {
     if (error instanceof RateLimitError) {
       throw error
     }
-    console.error('Error analyzing token:', error)
+    logger.error('Error analyzing token', { 
+      error,
+      tokenId: token.id 
+    }, userId)
     return token
   }
 }
@@ -262,7 +329,7 @@ export async function getPersonalizedFeed(userId: string, preferences?: {
   prioritizeCulturalTokens?: boolean
 }) {
   try {
-    const recommendations = await makeMbdRequest('/recommendations', {
+    const recommendations = await makeMbdRequest<RecommendationsResponse>('/recommendations', {
       userId,
       preferences: {
         categories: preferences?.categories || [],
@@ -325,7 +392,7 @@ function calculateCulturalScore(token: Token): number {
 
 export async function analyzeImage(imageUrl: string, userId?: string) {
   try {
-    return await makeMbdRequest('/vision/analyze', { imageUrl }, userId)
+    return await makeMbdRequest<ImageAnalysis>('/vision/analyze', { imageUrl }, userId)
   } catch (error) {
     if (error instanceof RateLimitError) {
       throw error
