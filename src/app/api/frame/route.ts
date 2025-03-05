@@ -153,121 +153,29 @@ export async function POST(req: NextRequest) {
 
     // Get recommendations based on user context
     const response = await sendMessage({
-      message: fid 
-        ? 'Please recommend personalized art and cultural tokens based on user preferences'
-        : 'Please analyze trending art and cultural tokens on Farcaster',
+      message: 'Show me cultural tokens in art category',
       userId: fid || 'anonymous',
       threadId: `grlkrash-frame-${randomUUID()}`,
-      context: fid ? {
-        farcasterContext: { userFid: fid }
-      } : undefined
+      context: {
+        category: 'art',
+        buttonIndex
+      }
     })
 
-    let currentToken = response.metadata?.tokenRecommendations?.[0]
-    let recommendations: TokenItem[] | undefined = undefined
-    let friendActivities: any[] | undefined = undefined
-    let referrals: any[] | undefined = undefined
-    let errorMessage: string | undefined
+    // Extract token recommendations from response
+    const recommendations = response.metadata?.tokenRecommendations || []
+    const currentToken = recommendations[0]
     
-    // Handle different button actions
-    switch (buttonIndex) {
-      case 1: // View Details/View Gallery
-        currentToken = response.metadata?.tokenRecommendations?.[0]
-        break
-      case 2: // Buy Token/Get Recommendations
-        if (fid) {
-          const feedResponse = await getPersonalizedFeed(fid)
-          if (feedResponse?.casts) {
-            recommendations = feedResponse.casts.map((cast: Cast) => ({
-              id: cast.hash,
-              name: cast.author.username,
-              symbol: 'TOKEN',
-              description: cast.text,
-              price: 0,
-              image: cast.author.pfp,
-              imageUrl: cast.author.pfp,
-              artistName: cast.author.displayName,
-              culturalScore: cast.reactions.likes,
-              tokenType: 'ERC20' as const,
-              metadata: {
-                artistName: cast.author.displayName,
-                culturalScore: cast.reactions.likes,
-                tokenType: 'ERC20',
-                timestamp: Number(cast.timestamp),
-                likes: cast.reactions.likes,
-                recasts: cast.reactions.recasts,
-                contractAddress: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS as string
-              }
-            }))
-          }
-        } else {
-          errorMessage = '🔒 Sign in with Farcaster to get personalized recommendations'
-        }
-        break
-      case 3: // Share/Friend Activity
-        if (fid) {
-          const activities = await getFriendActivities(fid)
-          friendActivities = activities || undefined
-        } else {
-          errorMessage = '🔒 Sign in with Farcaster to see friend activity'
-        }
-        break
-      case 4: // Next/My Referrals
-        if (fid) {
-          const userReferrals = await getReferrals(fid)
-          referrals = userReferrals || undefined
-        } else {
-          errorMessage = '🔒 Sign in with Farcaster to view your referrals'
-        }
-        break
-    }
-
-    // Analyze token if we have one
-    if (currentToken) {
-      // Convert TokenItem to Token for analysis
-      const tokenForAnalysis = {
-        id: currentToken.id,
-        name: currentToken.name,
-        symbol: currentToken.symbol,
-        description: currentToken.description,
-        imageUrl: currentToken.imageUrl || currentToken.image || 'https://picsum.photos/800/600',
-        artistName: currentToken.artistName || 'Unknown Artist',
-        price: String(currentToken.price || 0),
-        culturalScore: currentToken.culturalScore || 0,
-        tokenType: 'ERC20' as const
-      }
-
-      const analyzedToken = await analyzeToken(tokenForAnalysis)
-      
-      // Convert analyzed Token back to TokenItem
-      currentToken = {
-        ...currentToken,
-        id: String(analyzedToken.id),
-        name: analyzedToken.name,
-        symbol: analyzedToken.symbol,
-        description: analyzedToken.description,
-        imageUrl: analyzedToken.imageUrl,
-        image: analyzedToken.imageUrl,
-        artistName: analyzedToken.artistName,
-        price: parseFloat(analyzedToken.price),
-        culturalScore: analyzedToken.culturalScore,
-        tokenType: analyzedToken.tokenType,
-        metadata: {
-          ...currentToken.metadata,
-          artistName: analyzedToken.artistName,
-          culturalScore: analyzedToken.culturalScore,
-          tokenType: analyzedToken.tokenType,
-          contractAddress: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS as string
-        }
-      }
-    }
-
     // Format frame response based on content
     let imageUrl = currentToken?.imageUrl || `${hostUrl}/placeholder.png`
-    let buttonText1 = 'View Gallery'
-    let buttonText2 = fid ? 'Get Recommendations' : 'Sign in'
-    let buttonText3 = fid ? 'Friend Activity' : 'Sign in'
-    let buttonText4 = fid ? 'My Referrals' : 'Sign in'
+    let description = currentToken ? 
+      `${currentToken.name} (${currentToken.symbol})\n${currentToken.description}` :
+      'Discover cultural tokens in art'
+
+    let buttonText1 = currentToken ? 'View Details' : 'View Gallery'
+    let buttonText2 = currentToken ? 'Buy Token' : 'Get Recommendations'
+    let buttonText3 = currentToken ? 'Share' : 'Friend Activity'
+    let buttonText4 = currentToken ? 'Next' : 'My Referrals'
 
     return new Response(
       `<!DOCTYPE html><html><head>
@@ -278,7 +186,8 @@ export async function POST(req: NextRequest) {
         <meta property="fc:frame:button:2" content="${buttonText2}" />
         <meta property="fc:frame:button:3" content="${buttonText3}" />
         <meta property="fc:frame:button:4" content="${buttonText4}" />
-        ${errorMessage ? `<meta property="fc:frame:state" content="${errorMessage}" />` : ''}
+        <meta property="og:title" content="Prism: Cultural Tokens" />
+        <meta property="og:description" content="${description}" />
       </head></html>`,
       { headers: { 'Content-Type': 'text/html' } }
     )

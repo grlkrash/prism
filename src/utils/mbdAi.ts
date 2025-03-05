@@ -600,19 +600,25 @@ export async function validateFrameRequest(req: NextRequest): Promise<{ isValid:
   try {
     const body = await req.json()
     
-    // In development, allow all requests
+    // In development, allow all requests with basic validation
     if (process.env.NODE_ENV === 'development') {
+      const buttonIndex = body.buttonIndex || 1
+      if (buttonIndex < 1 || buttonIndex > 4) {
+        return { isValid: false }
+      }
       return {
         isValid: true,
         message: {
-          button: body.buttonIndex || 1,
-          fid: body.fid
+          button: buttonIndex,
+          fid: body.fid || 'test-user-123' // Default test user in development
         }
       }
     }
 
-    // Validate button index
-    const buttonIndex = body.buttonIndex
+    // Production validation
+    const buttonIndex = body.untrustedData?.buttonIndex || body.buttonIndex
+    const fid = body.untrustedData?.fid || body.fid
+
     if (!buttonIndex || buttonIndex < 1 || buttonIndex > 4) {
       return { isValid: false }
     }
@@ -621,7 +627,7 @@ export async function validateFrameRequest(req: NextRequest): Promise<{ isValid:
       isValid: true,
       message: {
         button: buttonIndex,
-        fid: body.fid
+        fid: fid
       }
     }
   } catch (error) {
