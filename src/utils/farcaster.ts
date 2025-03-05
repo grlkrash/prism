@@ -26,12 +26,18 @@ export class FarcasterError extends Error {
 }
 
 export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
-  const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'http://localhost:3003'
-  const url = new URL(baseUrl)
-  url.pathname = '/api/farcaster'
-  url.searchParams.set('endpoint', endpoint)
+  const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com/v2'
+  const url = new URL(endpoint, baseUrl)
   
-  const response = await fetch(url.toString(), options)
+  const response = await fetch(url.toString(), {
+    ...options,
+    headers: {
+      ...options.headers,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
+  })
+  
   if (!response.ok) throw new FarcasterError(`API error: ${response.statusText}`)
   return response.json()
 }
