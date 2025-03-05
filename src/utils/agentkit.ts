@@ -19,6 +19,8 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt"
 import { ChatOpenAI } from "@langchain/openai"
 import { AgentExecutor } from "@langchain/core/agents"
 import { agentInstance } from '@/config/agentkit'
+import { getAgent } from '@/config/agentkit'
+import { RateLimitError } from '@/utils/errors'
 
 class AgentkitError extends Error {
   constructor(message: string, public status?: number, public code?: string) {
@@ -27,35 +29,31 @@ class AgentkitError extends Error {
   }
 }
 
-class RateLimitError extends AgentkitError {
-  constructor(message: string) {
-    super(message)
-    this.name = 'RateLimitError'
-    this.code = 'RATE_LIMIT_EXCEEDED'
-  }
-}
-
 // Rate limiting configuration
-const RATE_LIMIT = {
-  maxRequests: 100,
-  windowMs: 60 * 1000, // 1 minute
-  requests: new Map<string, number[]>()
-}
+const RATE_LIMIT_WINDOW = 60000 // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 10
 
-function checkRateLimit(userId: string): boolean {
+const userRequestCounts = new Map<string, { count: number; timestamp: number }>()
+
+function checkRateLimit(userId: string) {
   const now = Date.now()
-  const userRequests = RATE_LIMIT.requests.get(userId) || []
-  
-  // Remove old requests
-  const recentRequests = userRequests.filter(time => now - time < RATE_LIMIT.windowMs)
-  
-  if (recentRequests.length >= RATE_LIMIT.maxRequests) {
-    return false
+  const userRequests = userRequestCounts.get(userId)
+
+  if (!userRequests) {
+    userRequestCounts.set(userId, { count: 1, timestamp: now })
+    return
   }
-  
-  recentRequests.push(now)
-  RATE_LIMIT.requests.set(userId, recentRequests)
-  return true
+
+  if (now - userRequests.timestamp > RATE_LIMIT_WINDOW) {
+    userRequestCounts.set(userId, { count: 1, timestamp: now })
+    return
+  }
+
+  if (userRequests.count >= MAX_REQUESTS_PER_WINDOW) {
+    throw new RateLimitError('Rate limit exceeded')
+  }
+
+  userRequests.count++
 }
 
 // Initialize LangChain tools
@@ -74,58 +72,92 @@ const agent = createReactAgent({
   systemPrompt: AGENTKIT_CONFIG.SYSTEM_PROMPT,
 })
 
-export async function sendMessage(request: z.infer<typeof agentRequestSchema>): Promise<z.infer<typeof agentResponseSchema>> {
+export async function sendMessage(request: unknown) {
   try {
-    // Validate request
     const validatedRequest = agentRequestSchema.parse(request)
+    const { message, userId = 'anonymous', context } = validatedRequest
 
-    // Check rate limit if userId is provided
-    if (validatedRequest.userId && !checkRateLimit(validatedRequest.userId)) {
-      logger.warn('Rate limit exceeded', { userId: validatedRequest.userId })
-      throw new RateLimitError(AGENTKIT_CONFIG.ERROR_MESSAGES.RATE_LIMIT)
-    }
+    // Check rate limit
+    checkRateLimit(userId)
 
-    logger.debug('Sending message to Agentkit', { request: validatedRequest })
+    // Get agent instance
+    const agent = await getAgent()
+    if (!agent) throw new Error('Failed to initialize agent')
 
-    // Create message for LangChain
-    const message = new HumanMessage(validatedRequest.message)
+    // Prepare context
+    const contextStr = context ? JSON.stringify(context) : ''
+    const input = contextStr ? `${message}\nContext: ${contextStr}` : message
 
-    // Run the agent
-    const result = await agentInstance.invoke({
-      messages: [message],
-      context: validatedRequest.context
+    // Call agent
+    const result = await agent.invoke({
+      input,
     })
 
-    // Format response
-    const validatedResponse = agentResponseSchema.parse({
-      id: Date.now().toString(),
-      content: result.content,
+    // Parse response
+    const response = agentResponseSchema.parse({
+      id: crypto.randomUUID(),
+      content: result.output,
       role: 'assistant',
       timestamp: new Date().toISOString(),
-      metadata: result.metadata
+      metadata: {
+        tokenRecommendations: extractTokenRecommendations(result.output),
+        actions: extractActions(result.output)
+      }
     })
 
-    // If there are token recommendations, analyze them with MBD AI
-    if (validatedResponse.metadata?.tokenRecommendations) {
-      validatedResponse.metadata.tokenRecommendations = await Promise.all(
-        validatedResponse.metadata.tokenRecommendations.map(async (token) => {
-          const analyzedToken = await analyzeToken(token)
-          return {
-            ...token,
-            culturalScore: analyzedToken.metadata?.aiScore
-          }
-        })
-      )
-    }
-
-    logger.debug('Agentkit response received', { response: validatedResponse })
-    return validatedResponse
+    return response
   } catch (error) {
-    if (error instanceof AgentkitError) {
+    if (error instanceof RateLimitError) {
       throw error
     }
-    logger.error('Failed to communicate with Agentkit API', { error })
-    throw new AgentkitError(AGENTKIT_CONFIG.ERROR_MESSAGES.API_ERROR)
+    console.error('Agent error:', error)
+    throw new Error('Failed to process request')
+  }
+}
+
+function extractTokenRecommendations(output: string) {
+  try {
+    const regex = /Token Recommendations:([\s\S]*?)(?=\n\n|$)/
+    const match = output.match(regex)
+    if (!match) return []
+
+    const recommendations = match[1].trim().split('\n').map(line => {
+      const [name, description] = line.split(':').map(s => s.trim())
+      return {
+        id: crypto.randomUUID(),
+        name,
+        description,
+        imageUrl: '', // Would be populated from token metadata
+        price: '0', // Would be populated from price feed
+      }
+    })
+
+    return recommendations
+  } catch (error) {
+    console.error('Error extracting recommendations:', error)
+    return []
+  }
+}
+
+function extractActions(output: string) {
+  try {
+    const regex = /Actions:([\s\S]*?)(?=\n\n|$)/
+    const match = output.match(regex)
+    if (!match) return []
+
+    const actions = match[1].trim().split('\n').map(line => {
+      const [type, tokenId, label] = line.split('|').map(s => s.trim())
+      return {
+        type: type as 'view' | 'buy' | 'share' | 'analyze' | 'farcaster',
+        tokenId,
+        label
+      }
+    })
+
+    return actions
+  } catch (error) {
+    console.error('Error extracting actions:', error)
+    return []
   }
 }
 

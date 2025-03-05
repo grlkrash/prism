@@ -9,12 +9,13 @@ import {
   cdpWalletActionProvider,
   pythActionProvider,
 } from "@coinbase/agentkit"
-import { createReactAgent } from "@langchain/langgraph/prebuilt"
 import { ChatOpenAI } from "@langchain/openai"
 import { AgentExecutor } from "@langchain/core/agents"
 import { HumanMessage } from "@langchain/core/messages"
 import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster'
-import { Tool } from '@langchain/core/tools'
+import { DynamicStructuredTool } from '@langchain/core/tools'
+import { z as zod } from 'zod'
+import { OpenAIFunctionsAgent } from "langchain/agents/openai"
 
 export const AGENTKIT_CONFIG = {
   API_URL: process.env.AGENTKIT_API_URL || 'https://api.agentkit.coinbase.com',
@@ -41,43 +42,112 @@ export const AGENTKIT_CONFIG = {
 }
 
 // Action providers configuration
-export const actionProviders = [
-  wethActionProvider(),
-  pythActionProvider(),
-  walletActionProvider(),
-  erc20ActionProvider(),
-  cdpApiActionProvider({
-    apiKeyName: AGENTKIT_CONFIG.CDP_API_KEY_NAME,
-    apiKeyPrivateKey: AGENTKIT_CONFIG.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+const actionTools = [
+  new DynamicStructuredTool({
+    name: 'wethAction',
+    description: 'Interact with WETH token',
+    schema: zod.object({
+      input: zod.string().describe('The action to perform with WETH')
+    }),
+    func: async ({ input }) => {
+      const provider = wethActionProvider()
+      return JSON.stringify(await provider.execute(input))
+    }
   }),
-  cdpWalletActionProvider({
-    apiKeyName: AGENTKIT_CONFIG.CDP_API_KEY_NAME,
-    apiKeyPrivateKey: AGENTKIT_CONFIG.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+  new DynamicStructuredTool({
+    name: 'pythAction',
+    description: 'Get price data from Pyth',
+    schema: zod.object({
+      input: zod.string().describe('The price feed to query')
+    }),
+    func: async ({ input }) => {
+      const provider = pythActionProvider()
+      return JSON.stringify(await provider.execute(input))
+    }
   }),
+  new DynamicStructuredTool({
+    name: 'walletAction',
+    description: 'Interact with wallet',
+    schema: zod.object({
+      input: zod.string().describe('The wallet action to perform')
+    }),
+    func: async ({ input }) => {
+      const provider = walletActionProvider()
+      return JSON.stringify(await provider.execute(input))
+    }
+  }),
+  new DynamicStructuredTool({
+    name: 'erc20Action',
+    description: 'Interact with ERC20 tokens',
+    schema: zod.object({
+      input: zod.string().describe('The ERC20 action to perform')
+    }),
+    func: async ({ input }) => {
+      const provider = erc20ActionProvider()
+      return JSON.stringify(await provider.execute(input))
+    }
+  }),
+  new DynamicStructuredTool({
+    name: 'cdpApiAction',
+    description: 'Interact with CDP API',
+    schema: zod.object({
+      input: zod.string().describe('The CDP API action to perform')
+    }),
+    func: async ({ input }) => {
+      const provider = cdpApiActionProvider({
+        apiKeyName: AGENTKIT_CONFIG.CDP_API_KEY_NAME,
+        apiKeyPrivateKey: AGENTKIT_CONFIG.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+      })
+      return JSON.stringify(await provider.execute(input))
+    }
+  }),
+  new DynamicStructuredTool({
+    name: 'cdpWalletAction',
+    description: 'Interact with CDP wallet',
+    schema: zod.object({
+      input: zod.string().describe('The CDP wallet action to perform')
+    }),
+    func: async ({ input }) => {
+      const provider = cdpWalletActionProvider({
+        apiKeyName: AGENTKIT_CONFIG.CDP_API_KEY_NAME,
+        apiKeyPrivateKey: AGENTKIT_CONFIG.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+      })
+      return JSON.stringify(await provider.execute(input))
+    }
+  })
 ]
 
 // Farcaster tools
 const farcasterTools = [
-  new Tool({
+  new DynamicStructuredTool({
     name: 'searchCasts',
     description: 'Search Farcaster casts for cultural tokens and trends',
-    func: async (query: string) => {
+    schema: zod.object({
+      query: zod.string().describe('The search query')
+    }),
+    func: async ({ query }) => {
       const results = await searchCasts(query)
       return JSON.stringify(results)
     }
   }),
-  new Tool({
+  new DynamicStructuredTool({
     name: 'getUserProfile',
     description: 'Get a Farcaster user profile',
-    func: async (fid: string) => {
+    schema: zod.object({
+      fid: zod.string().describe('The Farcaster user ID')
+    }),
+    func: async ({ fid }) => {
       const profile = await getUserProfile(fid)
       return JSON.stringify(profile)
     }
   }),
-  new Tool({
+  new DynamicStructuredTool({
     name: 'getTokenMentions',
     description: 'Get mentions of a specific token on Farcaster',
-    func: async (tokenName: string) => {
+    schema: zod.object({
+      tokenName: zod.string().describe('The token name to search for')
+    }),
+    func: async ({ tokenName }) => {
       const mentions = await getTokenMentions(tokenName)
       return JSON.stringify(mentions)
     }
@@ -91,11 +161,22 @@ const llm = new ChatOpenAI({
   maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
 })
 
-export const agentInstance = createReactAgent({
-  llm,
-  tools: [...actionProviders, ...farcasterTools],
-  systemMessage: AGENTKIT_CONFIG.SYSTEM_PROMPT,
-})
+const tools = [...actionTools, ...farcasterTools]
+
+let agentInstance: AgentExecutor | null = null
+
+export async function getAgent() {
+  if (!agentInstance) {
+    const agent = OpenAIFunctionsAgent.fromLLMAndTools(llm, tools, {
+      systemMessage: AGENTKIT_CONFIG.SYSTEM_PROMPT,
+    })
+    agentInstance = new AgentExecutor({
+      agent,
+      tools,
+    })
+  }
+  return agentInstance
+}
 
 export const agentResponseSchema = z.object({
   id: z.string(),
