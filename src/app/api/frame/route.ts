@@ -5,6 +5,7 @@ import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast } from '@
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { OpenAI } from 'openai'
+import { validateFrameMessage } from '@farcaster/core'
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -117,17 +118,24 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const validation = await validateFrameRequest(req)
-    if (!validation.isValid) {
-      return new Response(generateFrameHtml({
-        postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
-        errorMessage: 'Invalid frame request'
-      }), {
-        headers: { 'Content-Type': 'text/html' }
-      })
+    const body = await req.json()
+    
+    // Validate frame request
+    const validationResult = await validateFrameRequest({
+      ...body,
+      // Only validate messageBytes in production
+      skipMessageBytesValidation: process.env.NODE_ENV !== 'production'
+    })
+
+    if (!validationResult.isValid) {
+      console.error('[ERROR] Frame validation failed:', validationResult.message)
+      return new NextResponse(
+        JSON.stringify({ error: 'Invalid frame request' }),
+        { status: 400 }
+      )
     }
 
-    const { message } = validation
+    const { message } = validationResult
     
     // Get recommendations from both agent and MBD AI
     const [agentResponse, mbdResponse] = await Promise.all([
@@ -145,10 +153,10 @@ export async function POST(req: NextRequest) {
       ...(mbdResponse?.data?.casts || [])
         .filter((cast: Cast) => cast.aiAnalysis?.hasCulturalElements)
         .map((cast: Cast) => ({
-          id: cast.hash,
+              id: cast.hash,
           name: cast.text.slice(0, 50),
           symbol: 'CULT',
-          description: cast.text,
+              description: cast.text,
           imageUrl: 'https://placehold.co/1200x630/png',
           culturalScore: cast.metadata?.culturalScore || cast.aiAnalysis?.aiScore || 0
         }))
@@ -232,9 +240,28 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
     }
 
     // For production, validate messageBytes
-    if (process.env.NODE_ENV === 'production' && (!trustedData?.messageBytes)) {
-      logger.error('Invalid frame request: Missing messageBytes in production')
-      return { isValid: false }
+    if (process.env.NODE_ENV === 'production') {
+      if (!trustedData?.messageBytes) {
+        logger.error('Invalid frame request: Missing messageBytes in production')
+        return { isValid: false }
+      }
+
+      try {
+        const isValid = await validateFrameMessage({
+          messageBytes: trustedData.messageBytes,
+          fid: fid.toString(),
+          buttonIndex,
+          timestamp: Date.now()
+        })
+        
+        if (!isValid) {
+          logger.error('Invalid frame request: Frame message validation failed')
+          return { isValid: false }
+        }
+      } catch (error) {
+        logger.error('Frame message validation error:', error)
+        return { isValid: false }
+      }
     }
 
     return {

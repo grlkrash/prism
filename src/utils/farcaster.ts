@@ -1,4 +1,5 @@
 import { logger } from './logger'
+import { FarcasterError } from './errors'
 
 export interface FarcasterCast {
   hash: string
@@ -18,49 +19,38 @@ export interface FarcasterCast {
   }
 }
 
-export class FarcasterError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'FarcasterError'
-  }
-}
+const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com'
+const FARCASTER_API_KEY = process.env.FARCASTER_API_KEY
 
-const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com/v2'
-
-export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
+async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
   try {
     // Ensure endpoint starts with /v2 if not already
-    const apiEndpoint = endpoint.startsWith('/v2') ? endpoint : `/v2${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`
+    const apiEndpoint = endpoint.startsWith('/v2') ? endpoint : `/v2${endpoint}`
     
-    // Construct full URL
-    const url = new URL(apiEndpoint, FARCASTER_API_URL).toString()
+    // Construct absolute URL
+    const url = new URL(apiEndpoint, FARCASTER_API_URL)
     
-    // Get API key from environment
-    const apiKey = process.env.FARCASTER_API_KEY || process.env.NEXT_PUBLIC_FARCASTER_API_KEY
-    if (!apiKey && process.env.NODE_ENV === 'production') {
-      throw new FarcasterError('Missing Farcaster API key')
+    if (!FARCASTER_API_KEY) {
+      throw new FarcasterError('Farcaster API key not found')
     }
-    
-    const response = await fetch(url, {
+
+    const response = await fetch(url.toString(), {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${apiKey || 'test-key'}`,
-        ...options.headers
-      }
+        'Authorization': `Bearer ${FARCASTER_API_KEY}`,
+        ...options.headers,
+      },
     })
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'No error details')
-      logger.error(`[ERROR] Farcaster API error: ${response.status} ${response.statusText}`, { errorText })
-      throw new FarcasterError(`API error: ${response.status} ${response.statusText}`)
+      throw new FarcasterError(`API error: ${response.statusText}`)
     }
 
     return await response.json()
   } catch (error) {
-    logger.error('[ERROR] Farcaster request failed:', error)
-    throw new FarcasterError(error instanceof Error ? error.message : 'Unknown error')
+    console.error('[ERROR] Farcaster request failed:', error)
+    throw error instanceof FarcasterError ? error : new FarcasterError(String(error))
   }
 }
 

@@ -121,75 +121,30 @@ export async function getReferrals(userId: string): Promise<Referral[]> {
   return []
 }
 
-export async function sendMessage({ message, userId, context = {} }: SendMessageParams): Promise<AgentResponse> {
+export async function sendMessage({ message, userId, hasContext = true }: SendMessageParams): Promise<AgentResponse> {
   try {
-    logger.info('Agent request:', { message, userId, hasContext: !!context })
-
-    // Get friend activities
-    let friendActivities: FriendActivity[] = []
-    try {
-      friendActivities = await getFriendActivities(userId)
-    } catch (error) {
-      logger.error('Error fetching friend activities:', error)
-    }
-
-    // Get referrals
-    let referrals: Referral[] = []
-    try {
-      referrals = await getReferrals(userId)
-    } catch (error) {
-      logger.error('Error fetching referrals:', error)
-    }
-
-    // Prepare request
-    const request: AgentRequest = {
-      message,
-      userId,
-      context: {
-        ...context,
-        friendActivities,
-        referrals
-      }
-    }
-
-    // Validate request
-    const validatedRequest = agentRequestSchema.parse(request)
-
-    // Get agent response
-    const agent = await getAgent()
-    const { response } = await agent.invoke({
-      message: validatedRequest.message,
-      userId: validatedRequest.userId,
-      context: validatedRequest.context
-    })
+    const url = new URL('/api/agent', API_BASE_URL)
     
-    // Parse response
-    const content = response.content
-    const parsedResponse = {
-      id: crypto.randomUUID(),
-      content,
-      role: 'assistant',
-      timestamp: new Date().toISOString(),
-      metadata: {
-        tokenRecommendations: response.recommendations || [],
-        actions: response.actions || [],
-        friendActivities: friendActivities.map(activity => ({
-          timestamp: activity.timestamp || new Date().toISOString(),
-          userId: activity.userId || 'unknown',
-          username: activity.username || 'unknown',
-          action: (activity.action || 'share') as 'buy' | 'share' | 'sell',
-          tokenId: activity.tokenId
-        })),
-        referrals
-      }
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        userId,
+        hasContext,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Agent request failed: ${response.statusText}`)
     }
 
-    logger.info('Final response:', parsedResponse)
-    return parsedResponse
-
+    return await response.json()
   } catch (error) {
-    logger.error('Agent error:', error)
-    throw new AgentkitError('Failed to process message', 500)
+    console.error('[ERROR] Agent error:', error)
+    throw error
   }
 }
 

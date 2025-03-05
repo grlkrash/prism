@@ -10,14 +10,18 @@ export const MBD_AI_CONFIG = {
       'Accept': 'application/json'
     }
     
-    // Check if we're on the server side
-    if (typeof window === 'undefined') {
-      const apiKey = process.env.MBD_API_KEY
-      if (!apiKey) {
-        console.error('[MBD AI] API key not found in environment variables')
-        throw new Error('MBD API key not found')
-      }
+    // Get API key from environment variables
+    const apiKey = process.env.MBD_API_KEY || process.env.NEXT_PUBLIC_MBD_API_KEY
+    
+    // Add API key to headers if available
+    if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`
+    } else if (process.env.NODE_ENV === 'production') {
+      console.error('[MBD AI] API key not found in environment variables')
+      throw new Error('MBD API key not found')
+    } else {
+      // Use test key in development
+      headers['Authorization'] = 'Bearer test-key'
     }
     
     return headers
@@ -25,25 +29,26 @@ export const MBD_AI_CONFIG = {
 
   // Client-side API endpoints (through proxy)
   CLIENT_ENDPOINTS: {
-    TRENDING_FEED: '/api/mbd?endpoint=/v2/discover-actions',
-    FOR_YOU_FEED: '/api/mbd?endpoint=/v2/feed',
-    SEARCH: '/api/mbd?endpoint=/v2/search',
-    LABELS: '/api/mbd?endpoint=/v2/labels'
+    TRENDING_FEED: '/api/mbd/discover-actions',
+    FOR_YOU_FEED: '/api/mbd/feed',
+    SEARCH: '/api/mbd/search',
+    LABELS: '/api/mbd/labels'
   },
 
   // Server-side API endpoints
   SERVER_ENDPOINTS: {
-    FEED_FOR_YOU: '/v2/feed',
-    FEED_TRENDING: '/v2/discover-actions',
-    SEARCH_SEMANTIC: '/v2/search',
-    LABELS_FOR_ITEMS: '/v2/labels',
-    USERS_SIMILAR: '/v2/users/similar'
+    FEED_FOR_YOU: '/feed',
+    FEED_TRENDING: '/discover-actions',
+    SEARCH_SEMANTIC: '/search',
+    LABELS_FOR_ITEMS: '/labels',
+    USERS_SIMILAR: '/users/similar'
   },
 
   // Rate Limiting
   RATE_LIMIT: {
     MAX_REQUESTS: 100,
-    WINDOW_MS: 60 * 1000
+    WINDOW_MS: 60 * 1000,
+    RETRY_AFTER: 5000
   },
 
   // Cultural Token Detection
