@@ -1,3 +1,5 @@
+'use client'
+
 import { createContext, useContext, useReducer, ReactNode } from 'react'
 import { AgentResponse } from '@/config/agentkit'
 

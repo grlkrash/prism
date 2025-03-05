@@ -1,3 +1,5 @@
+'use client'
+
 import { useState } from 'react'
 import { useAgent } from '@/contexts/agent-context'
 import { Button } from '@/components/ui/button'
