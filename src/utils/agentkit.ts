@@ -314,11 +314,10 @@ async function extractTokenRecommendations(content: string): Promise<Token[]> {
         }
         
         try {
-          const analyzedToken = await analyzeToken(token)
+          const analyzedToken = await analyzeToken(token.id.toString())
           recommendations.push(analyzedToken)
         } catch (error) {
           logger.error('Error analyzing token:', { error, tokenId: token.id })
-          recommendations.push(token)
         }
       }
     }

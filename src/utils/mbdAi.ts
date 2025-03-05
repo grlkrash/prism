@@ -309,28 +309,23 @@ function checkRateLimit(userId: string): boolean {
 
 // Update makeMbdRequest to handle errors better
 async function makeRequest(endpoint: string, options: RequestInit = {}) {
-  try {
-    const url = new URL(endpoint.startsWith('http') ? endpoint : `${API_URL}/${endpoint}`)
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`,
-        ...options.headers
-      }
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'No error details')
-      logger.error(`[ERROR] MBD AI API error: ${response.status} ${response.statusText}`, { errorText })
-      throw new Error(`MBD AI request failed: ${response.status}`)
+  const url = endpoint.startsWith('http') ? endpoint : `${MBD_AI_CONFIG.API_URL}${endpoint}`
+  
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...MBD_AI_CONFIG.getHeaders(),
+      ...options.headers
     }
+  })
 
-    return await response.json()
-  } catch (error) {
-    logger.error('[ERROR] MBD AI request failed:', error)
-    throw error
+  if (!response.ok) {
+    const error = await response.text()
+    logger.error('MBD AI request failed:', { endpoint, status: response.status, error })
+    throw new MbdApiError('API request failed', response.status)
   }
+
+  return response.json()
 }
 
 export async function analyzeToken(tokenId: string): Promise<Token> {
@@ -452,19 +447,17 @@ export function calculateCulturalScore(token: Token): number {
 
 export async function analyzeImage(imageUrl: string, userId?: string) {
   try {
-    return await makeRequest<ImageAnalysis>('/vision/analyze', {
+    const result = await makeRequest('/vision/analyze', {
       method: 'POST',
       body: JSON.stringify({ imageUrl }),
       headers: {
         'X-User-Id': userId || 'anonymous'
       }
     })
+    return result as ImageAnalysis
   } catch (error) {
-    if (error instanceof RateLimitError) {
-      throw error
-    }
-    console.error('Error analyzing image:', error)
-    return null
+    logger.error('Error analyzing image:', error)
+    throw error
   }
 }
 
@@ -522,49 +515,43 @@ export async function getTrendingFeed(cursor?: string) {
 
 export async function searchCasts(query: string, cursor?: string) {
   try {
-    return await makeRequest<FeedResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.SEARCH_SEMANTIC, {
+    const result = await makeRequest(MBD_AI_CONFIG.SERVER_ENDPOINTS.SEARCH_SEMANTIC, {
       method: 'POST',
       body: JSON.stringify({ query, cursor })
     })
+    return result as FeedResponse
   } catch (error) {
-    if (error instanceof RateLimitError) {
-      throw error
-    }
     logger.error('Error searching casts:', error)
-    return { casts: [], next: undefined }
+    throw error
   }
 }
 
 export async function getLabelsForCasts(hashes: string[]) {
   try {
-    return await makeRequest<LabelsResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.LABELS_FOR_ITEMS, {
+    const result = await makeRequest(MBD_AI_CONFIG.SERVER_ENDPOINTS.LABELS_FOR_ITEMS, {
       method: 'POST',
       body: JSON.stringify({ hashes })
     })
+    return result as LabelsResponse
   } catch (error) {
-    if (error instanceof RateLimitError) {
-      throw error
-    }
-    logger.error('Error getting labels for casts:', error)
-    return { labels: [] }
+    logger.error('Error getting labels:', error)
+    throw error
   }
 }
 
 export async function getSimilarUsers(userId: string, cursor?: string) {
   try {
-    return await makeRequest<UsersResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.USERS_SIMILAR, {
+    const result = await makeRequest(MBD_AI_CONFIG.SERVER_ENDPOINTS.USERS_SIMILAR, {
       method: 'POST',
       body: JSON.stringify({ userId, cursor }),
       headers: {
         'X-User-Id': userId
       }
     })
+    return result as UsersResponse
   } catch (error) {
-    if (error instanceof RateLimitError) {
-      throw error
-    }
     logger.error('Error getting similar users:', error)
-    return { users: [], next: undefined }
+    throw error
   }
 }
 
