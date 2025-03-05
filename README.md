@@ -36,10 +36,18 @@ A Next.js application that implements a Farcaster Frame for discovering and inte
 
 ## Environment Variables
 
-- `NEXT_PUBLIC_MBD_AI_API_KEY`: API key for MBD AI
-- `NEXT_PUBLIC_BASE_RPC_URL`: Base RPC URL
-- `AGENTKIT_API_KEY`: API key for Agentkit
-- `NEXT_PUBLIC_WARPCAST_API_URL`: Warpcast API URL (defaults to https://api.warpcast.com/v2)
+The following environment variables are required:
+
+## MBD AI Configuration
+- `MBD_API_KEY`: API key for MBD AI
+- `MBD_AI_API_URL`: MBD AI API URL (defaults to https://api.mbd.xyz/v2)
+
+## Farcaster Configuration
+- `NEXT_PUBLIC_FARCASTER_API_URL`: Farcaster API URL
+- `NEXT_PUBLIC_FARCASTER_HUB_URL`: Farcaster Hub URL
+- `FARCASTER_FID`: Your Farcaster ID
+- `FARCASTER_PRIVATE_KEY`: Your Farcaster private key
+- `FARCASTER_PUBLIC_KEY`: Your Farcaster public key
 
 ## Tech Stack
 

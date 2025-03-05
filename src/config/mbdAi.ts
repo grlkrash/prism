@@ -1,8 +1,8 @@
 export const MBD_AI_CONFIG = {
   // API Configuration
-  API_URL: process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
+  API_URL: process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
   WARPCAST_API_URL: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com',
-  API_KEY: process.env.NEXT_PUBLIC_MBD_AI_API_KEY,
+  API_KEY: process.env.MBD_API_KEY,
   
   // Headers Configuration
   getHeaders: () => {
@@ -11,11 +11,13 @@ export const MBD_AI_CONFIG = {
       'Accept': 'application/json'
     }
     
-    const apiKey = process.env.NEXT_PUBLIC_MBD_AI_API_KEY
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`
+    const apiKey = process.env.MBD_API_KEY
+    if (!apiKey) {
+      console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
+      throw new Error('MBD API key not found')
     }
     
+    headers['Authorization'] = `Bearer ${apiKey}`
     return headers
   },
 
@@ -79,6 +81,11 @@ export const MBD_AI_CONFIG = {
     API_ERROR: 'Failed to communicate with MBD AI API',
     INVALID_RESPONSE: 'Invalid response from MBD AI API'
   }
+}
+
+// Validate configuration immediately
+if (!process.env.MBD_API_KEY) {
+  console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
 }
 
 // Validate configuration in development only

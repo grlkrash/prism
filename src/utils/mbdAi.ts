@@ -2,11 +2,11 @@ import { NextRequest } from 'next/server'
 import { logger } from './logger'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
-const MBD_API_KEY = process.env.NEXT_PUBLIC_MBD_AI_API_KEY
-const MBD_API_URL = process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
+const MBD_API_KEY = process.env.MBD_API_KEY
+const MBD_API_URL = process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
 
 if (!MBD_API_KEY) {
-  console.error('[MBD AI] API key not found - **')
+  logger.error('[ERROR] MBD API key not found. Please set MBD_API_KEY in your environment variables.')
 }
 
 if (!MBD_API_URL) {
@@ -289,16 +289,18 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
-// Update makeMbdRequest to use generic type
+// Update makeMbdRequest to handle errors better
 async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): Promise<T> {
   try {
-    // Check rate limit if userId is provided
-    if (userId && !checkRateLimit(userId)) {
-      logger.warn('Rate limit exceeded', { userId, endpoint }, userId)
-      throw new RateLimitError(MBD_AI_CONFIG.ERRORS.RATE_LIMIT)
+    if (!MBD_API_KEY) {
+      throw new MbdApiError('Missing API key')
     }
 
-    logger.debug('Making MBD AI request', { endpoint, data }, userId)
+    // Check rate limit if userId is provided
+    if (userId && !checkRateLimit(userId)) {
+      logger.warn('Rate limit exceeded', { userId, endpoint })
+      throw new RateLimitError(MBD_AI_CONFIG.ERRORS.RATE_LIMIT)
+    }
 
     const response = await fetch(`${MBD_API_URL}${endpoint}`, {
       method: 'POST',
@@ -310,31 +312,30 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
     })
 
     if (!response.ok) {
-      const error = await response.json()
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }))
       logger.error('MBD AI API request failed', { 
         status: response.status, 
-        error,
+        error: errorData,
         endpoint 
-      }, userId)
+      })
       throw new MbdApiError(
-        error.message || MBD_AI_CONFIG.ERRORS.API_ERROR,
+        errorData.message || MBD_AI_CONFIG.ERRORS.API_ERROR,
         response.status,
-        error.code
+        errorData.code
       )
     }
 
-    const result: MbdApiResponse<T> = await response.json()
+    const result = await response.json()
     
     if (result.error) {
       logger.error('MBD AI API returned error', { 
         error: result.error,
         endpoint 
-      }, userId)
-      throw new MbdApiError(result.error.message, undefined, result.error.code)
+      })
+      throw new MbdApiError(result.error.message || 'API Error', undefined, result.error.code)
     }
 
-    logger.debug('MBD AI request successful', { endpoint }, userId)
-    return result.data
+    return result.data || result
   } catch (error) {
     if (error instanceof MbdApiError) {
       throw error
@@ -342,8 +343,8 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
     logger.error('Failed to communicate with MBD AI API', { 
       error,
       endpoint 
-    }, userId)
-    throw new MbdApiError(MBD_AI_CONFIG.ERRORS.API_ERROR)
+    })
+    throw new MbdApiError(error instanceof Error ? error.message : MBD_AI_CONFIG.ERRORS.API_ERROR)
   }
 }
 
