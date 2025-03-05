@@ -41,7 +41,7 @@ export const AGENTKIT_CONFIG = {
 }
 
 // Initialize tools
-const farcasterTools = [
+const tools = [
   new DynamicStructuredTool({
     name: "searchCasts",
     description: "Search Farcaster casts",
@@ -86,6 +86,7 @@ const llm = new ChatOpenAI({
 
 let agentInstance: any = null
 
+// Create agent chain
 export async function getAgent() {
   if (!agentInstance) {
     const prompt = ChatPromptTemplate.fromMessages([
@@ -97,7 +98,7 @@ export async function getAgent() {
       response: z.string(),
       actions: z.array(z.string()).optional()
     }), {
-      llm,
+      llm: llm.bind(tools),
       prompt
     })
 

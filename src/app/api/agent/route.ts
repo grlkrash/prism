@@ -48,15 +48,21 @@ export async function POST(req: NextRequest) {
     
     // Get token recommendations based on user query
     const searchResults = await searchCasts(validatedData.message);
+    const parsedResults = JSON.parse(searchResults);
+    
+    if (!parsedResults || !Array.isArray(parsedResults.casts)) {
+      throw new Error('Invalid search results format');
+    }
+
     const analyzedTokens = await Promise.all(
-      searchResults.casts.map(async (cast) => {
+      parsedResults.casts.map(async (cast: any) => {
         // Extract token info from cast
         const token = {
-          id: cast.hash,
-          name: cast.text.substring(0, 50), // Use first 50 chars as name
-          description: cast.text,
-          imageUrl: cast.author.pfp || 'https://placehold.co/400',
-          artistName: cast.author.displayName || cast.author.username,
+          id: cast.hash || crypto.randomUUID(),
+          name: cast.text?.substring(0, 50) || 'Untitled Token', // Use first 50 chars as name
+          description: cast.text || 'No description available',
+          imageUrl: cast?.author?.pfp || 'https://placehold.co/400',
+          artistName: cast?.author?.displayName || cast?.author?.username || 'Anonymous',
           price: '0.1 ETH' // This would come from your token marketplace
         };
         

@@ -15,7 +15,6 @@ import { analyzeToken } from './mbdAi'
 import { getLangChainTools } from "@coinbase/agentkit-langchain"
 import { HumanMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
-import { createReactAgent } from "@langchain/langgraph/prebuilt"
 import { ChatOpenAI } from "@langchain/openai"
 import { AgentExecutor } from "@langchain/core/agents"
 import { agentInstance } from '@/config/agentkit'
@@ -53,19 +52,13 @@ function checkRateLimit(userId: string): boolean {
 }
 
 // Initialize LangChain tools
-const tools = getLangChainTools(actionProviders as any)
+const tools = []
 
-// Initialize the agent
+// Initialize the model
 const llm = new ChatOpenAI({
   model: AGENTKIT_CONFIG.MODEL,
   temperature: AGENTKIT_CONFIG.TEMPERATURE,
   maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
-})
-
-const agent = createReactAgent({
-  llm,
-  tools,
-  systemPrompt: AGENTKIT_CONFIG.SYSTEM_PROMPT,
 })
 
 export async function sendMessage(request: unknown): Promise<AgentResponse> {
