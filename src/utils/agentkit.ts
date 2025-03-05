@@ -6,6 +6,8 @@ import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions } from '
 import { getPersonalizedFeed } from './feed'
 import { Cast } from './mbdAi'
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+
 interface TokenMention {
   tokenId: string
   category?: string

@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     const validation = await validateFrameRequest(req)
     if (!validation.isValid) {
       return new Response(generateFrameHtml({
-        postUrl: req.url,
+        postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
         errorMessage: 'Invalid frame request'
       }), {
         headers: { 'Content-Type': 'text/html' }
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
     // If no recommendations, return error message
     if (recommendations.length === 0) {
       return new Response(generateFrameHtml({
-        postUrl: req.url,
+        postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
         errorMessage: 'No cultural tokens found at the moment'
       }), {
         headers: { 'Content-Type': 'text/html' }
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
     const currentToken = recommendations[currentIndex]
 
     return new Response(generateFrameHtml({
-      postUrl: req.url,
+      postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
       recommendations,
       token: currentToken,
       imageUrl: currentToken.imageUrl
@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     logger.error('Error in frame POST:', error)
     return new Response(generateFrameHtml({
-      postUrl: req.url,
+      postUrl: new URL('/api/frame', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').toString(),
       errorMessage: 'An error occurred processing your request'
     }), {
       headers: { 'Content-Type': 'text/html' }
@@ -213,7 +213,7 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
       return { isValid: false }
     }
 
-    const { untrustedData } = body
+    const { untrustedData, trustedData } = body
 
     // Validate required fields
     if (!untrustedData || typeof untrustedData !== 'object') {
@@ -228,6 +228,12 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
     // Validate button index
     if (buttonIndex < 1 || buttonIndex > 4) {
       logger.error('Invalid frame request: Invalid button index')
+      return { isValid: false }
+    }
+
+    // For production, validate messageBytes
+    if (process.env.NODE_ENV === 'production' && (!trustedData?.messageBytes)) {
+      logger.error('Invalid frame request: Missing messageBytes in production')
       return { isValid: false }
     }
 
