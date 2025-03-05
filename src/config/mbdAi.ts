@@ -55,14 +55,16 @@ export const MBD_AI_CONFIG = {
 
   // Error Messages
   ERRORS: {
-    MISSING_CONFIG: 'Missing required MBD AI environment variables',
+    MISSING_CONFIG: 'Missing MBD AI API key. Please ensure NEXT_PUBLIC_MBD_AI_API_KEY is set in your environment variables.',
     RATE_LIMIT: 'Rate limit exceeded. Please try again later.',
     API_ERROR: 'Failed to communicate with MBD AI API',
     INVALID_RESPONSE: 'Invalid response from MBD AI API'
   }
 }
 
-// Validate configuration
+// Validate configuration with better error handling
 if (!MBD_AI_CONFIG.API_KEY) {
-  throw new Error(MBD_AI_CONFIG.ERRORS.MISSING_CONFIG)
+  console.warn('Warning: MBD AI API key not found. Some features may be limited.')
+  // Don't throw error, allow fallback to test data
+  MBD_AI_CONFIG.API_KEY = 'test-key'
 } 
