@@ -5,11 +5,30 @@
     "signature": ""
   },
   "frame": {
-    "version": "0.0.0",
+    "version": "vNext",
     "name": "Prism",
-    "homeUrl": "https://638b-2601-282-2380-4b00-25a9-40b5-9994-6e8d.ngrok-free.app/api/frame",
-    "iconUrl": "https://placehold.co/200x200/5F4B8B/FFFFFF/png?text=Prism",
-    "splashImageUrl": "https://placehold.co/200x200/5F4B8B/FFFFFF/png?text=Prism",
-    "splashBackgroundColor": "#5F4B8B"
+    "homeUrl": "https://prism.vercel.app/api/frame",
+    "iconUrl": "https://prism.vercel.app/icon.png",
+    "splashImageUrl": "https://prism.vercel.app/splash.png",
+    "splashBackgroundColor": "#5F4B8B",
+    "buttons": [
+      {
+        "label": "View Gallery",
+        "action": "post"
+      },
+      {
+        "label": "Get Recommendations",
+        "action": "post"
+      },
+      {
+        "label": "Friend Activity",
+        "action": "post"
+      },
+      {
+        "label": "My Referrals",
+        "action": "post"
+      }
+    ],
+    "postUrl": "https://prism.vercel.app/api/frame"
   }
 } 

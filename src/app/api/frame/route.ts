@@ -1,11 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { analyzeToken, getPersonalizedFeed } from '@/utils/mbdAi'
+import { NextRequest } from 'next/server'
+import { PinataFDK } from 'pinata-fdk'
+import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
-import { validateFrameRequest } from '@/utils/mbdAi'
+import { analyzeToken, getPersonalizedFeed } from '@/utils/mbdAi'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { OpenAI } from 'openai'
-import { logger } from '@/utils/logger'
+
+// Initialize FDK
+const fdk = new PinataFDK()
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -39,6 +42,17 @@ async function convertTokenForAI(token: TokenItem) {
   } catch (error) {
     logger.error('Error in AI conversion:', error)
     return token
+  }
+}
+
+// Validate frame request
+async function validateFrameRequest(body: any): Promise<{ isValid: boolean; message?: any }> {
+  try {
+    const { isValid, message } = await fdk.validateFrameMessage(body)
+    return { isValid, message }
+  } catch (error) {
+    logger.error('Frame validation error:', error)
+    return { isValid: false }
   }
 }
 
@@ -111,7 +125,7 @@ export async function GET(req: NextRequest) {
     const hostUrl = `${url.protocol}//${url.host}`
     
     // Return initial frame HTML
-    return new NextResponse(generateFrameHtml({
+    return new Response(generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
       imageUrl: 'https://placehold.co/1200x630/png'
     }), {
@@ -122,7 +136,7 @@ export async function GET(req: NextRequest) {
     })
   } catch (error) {
     logger.error('Error in GET:', error)
-    return new NextResponse(generateFrameHtml({
+    return new Response(generateFrameHtml({
       postUrl: req.url,
       errorMessage: 'Something went wrong. Please try again later.'
     }), {
@@ -133,22 +147,26 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const body = await req.json()
+    const { isValid, message } = await validateFrameRequest(body)
+
+    if (!isValid) {
+      return new Response(
+        `<!DOCTYPE html><html><head>
+          <title>Error</title>
+          <meta property="fc:frame" content="vNext" />
+          <meta property="fc:frame:image" content="${process.env.NEXT_PUBLIC_HOST_URL}/error.png" />
+          <meta property="fc:frame:button:1" content="Try Again" />
+        </head></html>`,
+        { headers: { 'Content-Type': 'text/html' } }
+      )
+    }
+
+    const fid = message?.data?.fid
+    const buttonIndex = message?.data?.frameActionBody?.buttonIndex || 1
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
-    
-    // Validate frame request
-    const body = await req.json()
-    const validationResult = await validateFrameRequest(body)
-    
-    if (!validationResult.isValid || !validationResult.message) {
-      throw new Error('Invalid frame request')
-    }
-    
-    // Extract validated data
-    const { message } = validationResult
-    const button = message.button || 1 // Default to first button if not specified
-    const fid = message.fid
-    
+
     // Get recommendations based on user context
     const response = await sendMessage({
       message: fid 
@@ -168,7 +186,7 @@ export async function POST(req: NextRequest) {
     let errorMessage: string | undefined
     
     // Handle different button actions
-    switch (button) {
+    switch (buttonIndex) {
       case 1: // View Details/View Gallery
         currentToken = response.metadata?.tokenRecommendations?.[0]
         break
@@ -193,7 +211,8 @@ export async function POST(req: NextRequest) {
                 tokenType: 'ERC20',
                 timestamp: Number(cast.timestamp),
                 likes: cast.reactions.likes,
-                recasts: cast.reactions.recasts
+                recasts: cast.reactions.recasts,
+                contractAddress: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS as string
               }
             }))
           }
@@ -253,34 +272,44 @@ export async function POST(req: NextRequest) {
           ...currentToken.metadata,
           artistName: analyzedToken.artistName,
           culturalScore: analyzedToken.culturalScore,
-          tokenType: analyzedToken.tokenType
+          tokenType: analyzedToken.tokenType,
+          contractAddress: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS as string
         }
       }
     }
 
-    const html = generateFrameHtml({
-      imageUrl: currentToken?.image || currentToken?.imageUrl || 'https://picsum.photos/800/600',
-      postUrl: `${hostUrl}/api/frame`,
-      token: currentToken,
-      recommendations,
-      friendActivities,
-      referrals,
-      errorMessage
-    })
-    
-    return new NextResponse(html, {
-      headers: {
-        'Content-Type': 'text/html',
-        'Cache-Control': 'no-store'
-      }
-    })
+    // Format frame response based on content
+    let imageUrl = currentToken?.imageUrl || `${hostUrl}/placeholder.png`
+    let buttonText1 = 'View Gallery'
+    let buttonText2 = fid ? 'Get Recommendations' : 'Sign in'
+    let buttonText3 = fid ? 'Friend Activity' : 'Sign in'
+    let buttonText4 = fid ? 'My Referrals' : 'Sign in'
+
+    return new Response(
+      `<!DOCTYPE html><html><head>
+        <title>Prism Frame</title>
+        <meta property="fc:frame" content="vNext" />
+        <meta property="fc:frame:image" content="${imageUrl}" />
+        <meta property="fc:frame:button:1" content="${buttonText1}" />
+        <meta property="fc:frame:button:2" content="${buttonText2}" />
+        <meta property="fc:frame:button:3" content="${buttonText3}" />
+        <meta property="fc:frame:button:4" content="${buttonText4}" />
+        ${errorMessage ? `<meta property="fc:frame:state" content="${errorMessage}" />` : ''}
+      </head></html>`,
+      { headers: { 'Content-Type': 'text/html' } }
+    )
   } catch (error) {
-    logger.error('Error in POST:', error)
-    return new NextResponse(generateFrameHtml({
-      postUrl: req.url,
-      errorMessage: 'Something went wrong. Please try again later.'
-    }), {
-      headers: { 'Content-Type': 'text/html' }
-    })
+    logger.error('Frame error:', error)
+    const url = new URL(req.url)
+    const hostUrl = `${url.protocol}//${url.host}`
+    return new Response(
+      `<!DOCTYPE html><html><head>
+        <title>Error</title>
+        <meta property="fc:frame" content="vNext" />
+        <meta property="fc:frame:image" content="${hostUrl}/error.png" />
+        <meta property="fc:frame:button:1" content="Try Again" />
+      </head></html>`,
+      { headers: { 'Content-Type': 'text/html' } }
+    )
   }
 } 

@@ -1,28 +1,49 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import sdk from '@farcaster/frame-sdk'
+import {
+  useAccount,
+  useConnect,
+  useDisconnect,
+  useSendTransaction,
+  useConfig
+} from 'wagmi'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { sendMessage } from '@/utils/agentkit'
-import { getFriendActivities } from '@/utils/agentkit'
 import { getTrendingFeed } from '@/utils/mbdAi'
 import type { TokenItem } from '@/types/token'
+import sdk from '@farcaster/frame-sdk'
 
-interface FrameContext {
-  fid?: number
+// Use the SDK's FrameContext type
+type UserContext = {
+  fid: number
   username?: string
   displayName?: string
-  pfp?: string
-  bio?: string
-  location?: {
-    placeId: string
-    description: string
-  }
+  pfpUrl?: string
+}
+
+interface TokenMetadata {
+  authorFid?: string
+  authorUsername?: string
+  timestamp?: number
+  likes?: number
+  recasts?: number
+  contractAddress?: string
+  category?: string
+  tags?: string[]
+  sentiment?: number
+  popularity?: number
+  aiScore?: number
+  isCulturalToken?: boolean
+  artistName?: string
+  culturalScore?: number
+  tokenType?: 'ERC20' | 'ERC721'
 }
 
 export default function Demo() {
+  const config = useConfig()
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [context, setContext] = useState<FrameContext | null>(null)
+  const [context, setContext] = useState<UserContext | null>(null)
   const [ethAmount, setEthAmount] = useState<string>('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isContextOpen, setIsContextOpen] = useState(false)
@@ -32,27 +53,28 @@ export default function Demo() {
   const [cursor, setCursor] = useState<string | undefined>()
   const feedEndRef = useRef<HTMLDivElement>(null)
 
+  // Wagmi hooks
+  const { address, isConnected } = useAccount()
+  const { connect: connectWallet } = useConnect()
+  const { disconnect } = useDisconnect()
+  const {
+    sendTransaction,
+    error: sendTxError,
+    isError: isSendTxError,
+    isPending: isSendTxPending,
+  } = useSendTransaction()
+
   // Load SDK and initial data
   useEffect(() => {
     const load = async () => {
       try {
         if (!sdk) throw new Error('SDK not loaded')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
-        // Add delay for SDK initialization
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
-        // Initialize SDK with proper configuration
         const ctx = await sdk.context
-        if (!ctx) throw new Error('Failed to get SDK context')
-        
         setContext(ctx?.user || null)
-        
-        if (!sdk.actions) throw new Error('SDK actions not available')
-        
-        // Signal ready to Farcaster client
-        await sdk.actions.ready()
-        setIsSDKLoaded(true)
-        
+        sdk.actions.ready()
+
         // Only load initial data if we have a valid FID
         if (ctx?.user?.fid) {
           await loadInitialData(ctx.user.fid)
@@ -60,10 +82,12 @@ export default function Demo() {
           // Load anonymous data
           await loadInitialData()
         }
+        
+        setIsSDKLoaded(true)
       } catch (err) {
-        console.error('Failed to initialize SDK:', err)
-        setError(err instanceof Error ? err.message : 'Failed to initialize SDK')
-        setIsSDKLoaded(true) // Set to true to exit loading state even on error
+        console.error('Failed to initialize:', err)
+        setError(err instanceof Error ? err.message : 'Failed to initialize')
+        setIsSDKLoaded(true)
       }
     }
     load()
@@ -114,7 +138,8 @@ export default function Demo() {
               authorUsername: cast.author.username,
               timestamp: Number(cast.timestamp),
               likes: cast.reactions.likes,
-              recasts: cast.reactions.recasts
+              recasts: cast.reactions.recasts,
+              contractAddress: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS as string
             }
           }))
           setTokens(newTokens)
@@ -134,6 +159,13 @@ export default function Demo() {
     }
   }
 
+  // Token amount calculation helper
+  const calculateTokenAmount = useCallback((ethAmt: string, tokenPrice: number) => {
+    const eth = parseFloat(ethAmt)
+    if (isNaN(eth)) return '0'
+    return (eth / tokenPrice).toFixed(2)
+  }, [])
+
   // Load more data
   const loadMore = useCallback(async () => {
     if (isLoading || !hasMore || !cursor) return
@@ -142,12 +174,12 @@ export default function Demo() {
     try {
       const feed = await getTrendingFeed(cursor)
       if (feed.casts) {
-        const newTokens: TokenItem[] = feed.casts.map(cast => ({
+        const newTokens = feed.casts.map(cast => ({
           id: cast.hash,
           name: cast.text.split('\n')[0] || 'Untitled Token',
           symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
           description: cast.text,
-          price: 0.001, // Default price as number
+          price: 0.001,
           image: cast.author.pfp,
           category: 'cultural',
           metadata: {
@@ -155,11 +187,13 @@ export default function Demo() {
             authorUsername: cast.author.username,
             timestamp: Number(cast.timestamp),
             likes: cast.reactions.likes,
-            recasts: cast.reactions.recasts
+            recasts: cast.reactions.recasts,
+            contractAddress: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS as string
           }
         }))
         setTokens(prev => [...prev, ...newTokens])
       }
+      
       if (feed.next?.cursor) {
         setCursor(feed.next.cursor)
       } else {
@@ -172,9 +206,9 @@ export default function Demo() {
     }
   }, [cursor, isLoading, hasMore])
 
-  // Infinite scroll observer
+  // Infinite scroll
   useEffect(() => {
-    if (!feedEndRef.current) return
+    if (!feedEndRef.current || !hasMore) return
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -189,21 +223,39 @@ export default function Demo() {
     return () => observer.disconnect()
   }, [hasMore, isLoading, loadMore])
 
-  const calculateTokenAmount = (ethAmt: string, tokenPrice: number) => {
-    const eth = parseFloat(ethAmt)
-    if (isNaN(eth)) return '0'
-    return (eth / tokenPrice).toFixed(2)
-  }
-
+  // Buy action
   const handleBuy = useCallback((token: TokenItem) => {
+    if (!isConnected) {
+      connectWallet({
+        connector: config.connectors[0]
+      })
+      return
+    }
+
+    const contractAddress = token.metadata?.contractAddress || process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+    if (!contractAddress) {
+      setError('No contract address available for this token')
+      return
+    }
+
     if (sdk.actions) {
       sdk.actions.openUrl(`https://base.org/swap?token=${token.id}&amount=${ethAmount}`)
+    } else {
+      sendTransaction({
+        to: contractAddress as `0x${string}`,
+        value: BigInt(ethAmount),
+        data: '0x'
+      })
     }
-  }, [ethAmount])
+  }, [ethAmount, isConnected, connectWallet, sendTransaction, config.connectors])
 
+  // Share action
   const handleShare = useCallback((token: TokenItem) => {
     if (sdk.actions) {
       sdk.actions.openUrl(`https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`)
+    } else {
+      const shareUrl = `https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`
+      window.open(shareUrl, '_blank')
     }
   }, [])
 
@@ -277,7 +329,9 @@ export default function Demo() {
             <div className="space-y-2">
               <h2 className="font-bold text-lg">{token.name}</h2>
               <p className="text-sm text-gray-600 dark:text-gray-300">{token.description}</p>
-              <p className="text-sm font-medium">1 ETH = {(1/token.price).toFixed(0)} {token.symbol}</p>
+              <p className="text-sm font-medium">
+                1 ETH = {calculateTokenAmount('1', token.price)} {token.symbol}
+              </p>
             </div>
 
             {/* Buy Input */}
@@ -298,9 +352,19 @@ export default function Demo() {
 
             {/* Actions */}
             <div className="grid grid-cols-2 gap-2 mt-4">
-              <Button onClick={() => handleBuy(token)} variant="default">Buy</Button>
+              <Button 
+                onClick={() => handleBuy(token)} 
+                variant="default"
+                disabled={isSendTxPending}
+              >
+                {isSendTxPending ? 'Buying...' : isConnected ? 'Buy' : 'Connect'}
+              </Button>
               <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
             </div>
+
+            {sendTxError && (
+              <p className="text-red-500 text-sm mt-2">{sendTxError.message}</p>
+            )}
           </div>
         ))}
 
