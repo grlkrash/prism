@@ -309,29 +309,31 @@ function checkRateLimit(userId: string): boolean {
 
 // Update makeMbdRequest to handle errors better
 async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): Promise<T> {
-  if (!API_KEY) {
-    throw new MbdApiError('MBD API key not configured', 401)
-  }
-
   try {
-    const response = await fetch(`${API_URL}${endpoint}`, {
+    const apiKey = process.env.MBD_API_KEY
+    if (!apiKey) {
+      throw new MbdApiError('MBD API key not found')
+    }
+
+    const response = await fetch(`${process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+        'Authorization': `Bearer ${apiKey}`,
+        'X-User-Id': userId || 'anonymous'
       },
       body: JSON.stringify(data)
     })
 
     if (!response.ok) {
-      throw new MbdApiError(`MBD AI request failed: ${response.status}`, response.status)
+      throw new MbdApiError(`API error: ${response.statusText}`, response.status)
     }
 
     const result = await response.json()
     return result as T
   } catch (error) {
-    logger.error('[ERROR] MBD AI request failed:', error)
-    throw error
+    logger.error('[ERROR] MBD request failed:', error)
+    throw error instanceof MbdApiError ? error : new MbdApiError('Failed to make MBD request')
   }
 }
 

@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
     // Get base URL for API calls
     const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https'
-    const host = process.env.NEXT_PUBLIC_HOST_URL || request.headers.get('host') || 'localhost:3000'
+    const host = process.env.NEXT_PUBLIC_HOST_URL || new URL(request.url).host || 'localhost:3000'
     const baseUrl = `${protocol}://${host}`
 
     // Get art/culture token mentions from Farcaster

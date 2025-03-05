@@ -29,11 +29,14 @@ const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://
 
 export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
   try {
-    const url = new URL(endpoint.startsWith('http') ? endpoint : `${FARCASTER_API_URL}${endpoint}`)
+    const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com'
+    const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`
+    
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.FARCASTER_PRIVATE_KEY || ''}`,
         ...options.headers
       }
     })
