@@ -1,21 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/utils/logger'
-import { MBD_AI_CONFIG, isConfigValid } from '@/config/mbdAi'
+import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
 export async function GET(req: NextRequest) {
   try {
-    if (!isConfigValid) {
-      return new NextResponse(
-        JSON.stringify({ error: 'MBD API configuration is invalid. Please check your environment variables.' }),
-        { 
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      )
-    }
-
     const { searchParams } = new URL(req.url)
     const endpoint = searchParams.get('endpoint')
     const params = searchParams.get('params')
@@ -32,7 +20,24 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const headers = MBD_AI_CONFIG.getHeaders()
+    let headers
+    try {
+      headers = MBD_AI_CONFIG.getHeaders()
+    } catch (error) {
+      logger.error('Error getting MBD headers:', error)
+      return new NextResponse(
+        JSON.stringify({ 
+          error: error instanceof Error ? error.message : 'Failed to configure MBD API'
+        }),
+        { 
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+    }
+
     const url = new URL(`${MBD_AI_CONFIG.API_URL}${endpoint}`)
     
     // Add parameters if they exist
@@ -84,18 +89,6 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!isConfigValid) {
-      return new NextResponse(
-        JSON.stringify({ error: 'MBD API configuration is invalid. Please check your environment variables.' }),
-        { 
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      )
-    }
-
     const { searchParams } = new URL(req.url)
     const endpoint = searchParams.get('endpoint')
     
@@ -112,7 +105,23 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const headers = MBD_AI_CONFIG.getHeaders()
+    let headers
+    try {
+      headers = MBD_AI_CONFIG.getHeaders()
+    } catch (error) {
+      logger.error('Error getting MBD headers:', error)
+      return new NextResponse(
+        JSON.stringify({ 
+          error: error instanceof Error ? error.message : 'Failed to configure MBD API'
+        }),
+        { 
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+    }
     
     const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, {
       method: 'POST',
