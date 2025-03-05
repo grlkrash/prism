@@ -82,7 +82,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     
-    // Basic validation of request body
     if (!body || !body.untrustedData) {
       logger.error('Invalid frame request: Missing or invalid request body')
       return new Response(generateFrameHtml({
@@ -97,34 +96,74 @@ export async function POST(req: NextRequest) {
     const buttonIndex = Number(untrustedData.buttonIndex) || 1
     const fid = untrustedData.fid || 'anonymous'
 
-    // Initialize recommendations array
     let recommendations = []
     let currentToken = null
+    let mbdAiResults = []
 
+    // 1. Try AI Agent first
     try {
-      // First try to get agent recommendations
+      logger.info('Fetching AI agent recommendations...')
       const agentResponse = await sendMessage({
         message: 'Show me cultural tokens in art category',
         userId: fid,
         context: { button: buttonIndex }
       })
 
-      logger.info('Agent response received:', agentResponse?.metadata?.tokenRecommendations?.length)
-
-      if (agentResponse?.metadata?.tokenRecommendations) {
+      if (agentResponse?.metadata?.tokenRecommendations?.length > 0) {
+        logger.info('AI agent recommendations received:', agentResponse.metadata.tokenRecommendations.length)
         recommendations = agentResponse.metadata.tokenRecommendations
       }
     } catch (agentError) {
-      logger.error('Agent error:', agentError)
+      logger.error('AI agent error:', agentError)
     }
 
-    // If no agent recommendations, use mock data
+    // 2. Try MBD AI if agent recommendations are empty
     if (recommendations.length === 0) {
-      logger.info('Using mock data')
-      recommendations = tokenDatabase.map(token => ({
-        ...token,
-        imageUrl: token.imageUrl || 'https://placehold.co/1200x630/png'
-      }))
+      try {
+        logger.info('Fetching MBD AI recommendations...')
+        const feed = await getPersonalizedFeed(fid)
+        
+        if (feed?.casts) {
+          const culturalCasts = feed.casts.filter(cast => 
+            cast.aiAnalysis?.hasCulturalElements || 
+            cast.aiAnalysis?.category?.toLowerCase().includes('art') ||
+            cast.aiAnalysis?.category?.toLowerCase().includes('culture')
+          )
+
+          if (culturalCasts.length > 0) {
+            logger.info('MBD AI recommendations received:', culturalCasts.length)
+            mbdAiResults = await Promise.all(
+              culturalCasts.map(async cast => {
+                const analysis = await analyzeToken(cast)
+                return {
+                  id: cast.hash,
+                  name: cast.text.split('\n')[0] || 'Untitled Token',
+                  symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+                  description: cast.text,
+                  imageUrl: cast.author.pfp || 'https://placehold.co/1200x630/png',
+                  price: '0.001 ETH',
+                  culturalScore: analysis?.culturalScore || 0,
+                  tokenType: 'ERC20',
+                  metadata: {
+                    ...cast.metadata,
+                    aiScore: analysis?.aiScore || 0,
+                    isCulturalToken: true
+                  }
+                }
+              })
+            )
+            recommendations = mbdAiResults
+          }
+        }
+      } catch (mbdError) {
+        logger.error('MBD AI error:', mbdError)
+      }
+    }
+
+    // 3. Use mock data only if both API calls fail
+    if (recommendations.length === 0) {
+      logger.info('Using mock data as fallback')
+      recommendations = tokenDatabase
     }
 
     // Get current token based on button index
@@ -132,6 +171,7 @@ export async function POST(req: NextRequest) {
     currentToken = recommendations[currentIndex]
 
     if (!currentToken) {
+      logger.error('No token found for index:', currentIndex)
       currentToken = tokenDatabase[0]
     }
 
@@ -147,12 +187,10 @@ export async function POST(req: NextRequest) {
     })
   } catch (error) {
     logger.error('Error in POST:', error)
-    // Return first mock token on error
-    const fallbackToken = tokenDatabase[0]
     return new Response(generateFrameHtml({
       postUrl: req.url,
-      token: fallbackToken,
-      imageUrl: fallbackToken.imageUrl || 'https://placehold.co/1200x630/png'
+      token: tokenDatabase[0],
+      errorMessage: 'An error occurred. Please try again.'
     }), {
       headers: { 'Content-Type': 'text/html' }
     })
