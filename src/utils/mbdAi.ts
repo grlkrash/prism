@@ -12,6 +12,13 @@ export interface Token {
     discord?: string
     website?: string
   }
+  metadata?: {
+    category?: string
+    tags?: string[]
+    sentiment?: number
+    popularity?: number
+    aiScore?: number
+  }
 }
 
 export const tokenDatabase: Token[] = [
@@ -81,5 +88,95 @@ export const frameActions = {
   },
   openUrl: async (url: string) => {
     // Implement open URL action
+  }
+}
+
+export async function analyzeToken(token: Token) {
+  try {
+    const response = await fetch('https://api.mbd.ai/v1/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_AI_API_KEY}`
+      },
+      body: JSON.stringify({
+        token: {
+          name: token.name,
+          description: token.description,
+          imageUrl: token.imageUrl,
+          social: token.social
+        }
+      })
+    })
+
+    if (!response.ok) throw new Error('Failed to analyze token')
+    
+    const analysis = await response.json()
+    return {
+      ...token,
+      metadata: {
+        ...token.metadata,
+        category: analysis.category,
+        tags: analysis.tags,
+        sentiment: analysis.sentiment,
+        popularity: analysis.popularity,
+        aiScore: analysis.aiScore
+      }
+    }
+  } catch (error) {
+    console.error('Error analyzing token:', error)
+    return token
+  }
+}
+
+export async function getPersonalizedFeed(userId: string, preferences?: {
+  categories?: string[]
+  minSentiment?: number
+  minPopularity?: number
+}) {
+  try {
+    const response = await fetch('https://api.mbd.ai/v1/recommendations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_AI_API_KEY}`
+      },
+      body: JSON.stringify({
+        userId,
+        preferences: {
+          categories: preferences?.categories || [],
+          minSentiment: preferences?.minSentiment || 0,
+          minPopularity: preferences?.minPopularity || 0
+        }
+      })
+    })
+
+    if (!response.ok) throw new Error('Failed to get personalized feed')
+    
+    const recommendations = await response.json()
+    return recommendations.tokens
+  } catch (error) {
+    console.error('Error getting personalized feed:', error)
+    return tokenDatabase // Fallback to all tokens
+  }
+}
+
+export async function analyzeImage(imageUrl: string) {
+  try {
+    const response = await fetch('https://api.mbd.ai/v1/vision/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_AI_API_KEY}`
+      },
+      body: JSON.stringify({ imageUrl })
+    })
+
+    if (!response.ok) throw new Error('Failed to analyze image')
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error analyzing image:', error)
+    return null
   }
 } 
