@@ -2,9 +2,21 @@ import { AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, g
 import { logger } from './logger'
 import { analyzeToken, Token } from './mbdAi'
 import { HumanMessage } from "@langchain/core/messages"
-import { getFarcasterFollowing, getFarcasterCasts } from './farcaster'
+import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions } from './farcaster'
 import { getPersonalizedFeed } from './feed'
 import { Cast } from './mbdAi'
+
+interface TokenMention {
+  tokenId: string
+  category?: string
+}
+
+interface SendMessageParams {
+  message: string
+  userId: string
+  threadId?: string
+  context?: Record<string, any>
+}
 
 // SocialFi types
 interface FriendActivity {
@@ -114,9 +126,9 @@ export async function sendMessage({ message, userId, threadId, context }: SendMe
     // Get friend activities and token mentions from Farcaster
     const friendActivities = await getFriendActivities(userId);
     const artTokenMentions = friendActivities
-      .map(activity => extractTokenMentions(activity.tokenId))
+      .map((activity: FriendActivity) => extractTokenMentions(activity.tokenId))
       .flat()
-      .filter(mention => mention.category === 'art' || mention.category === 'culture');
+      .filter((mention: TokenMention) => mention.category === 'art' || mention.category === 'culture');
 
     // Log request with Farcaster context
     console.info('[INFO] Agent request:', { 

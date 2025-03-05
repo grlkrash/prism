@@ -189,7 +189,7 @@ interface FrameMessage {
   fid?: string
 }
 
-export async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
+async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
     // In development, allow all requests with test data
     if (process.env.NODE_ENV === 'development') {
@@ -203,21 +203,32 @@ export async function validateFrameRequest(req: NextRequest): Promise<{ isValid:
       }
     }
 
-    // In production, validate the frame request properly
+    // In production, validate the frame request
     const body = await req.json()
+    
+    // Basic validation of required fields
     if (!body || !body.untrustedData) {
+      logger.error('Invalid frame request: Missing required fields')
+      return { isValid: false }
+    }
+
+    const { untrustedData } = body
+    
+    // Validate required frame data
+    if (!untrustedData.buttonIndex || !untrustedData.fid) {
+      logger.error('Invalid frame request: Missing buttonIndex or fid')
       return { isValid: false }
     }
 
     return {
       isValid: true,
       message: {
-        button: body.untrustedData.buttonIndex || 1,
-        fid: body.untrustedData.fid
+        button: untrustedData.buttonIndex,
+        fid: untrustedData.fid
       }
     }
   } catch (error) {
-    console.error('[ERROR] Frame validation error:', error)
+    logger.error('Frame validation error:', error)
     return { isValid: false }
   }
 } 

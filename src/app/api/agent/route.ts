@@ -2,7 +2,12 @@
 import { NextResponse } from 'next/server';
 import { logger } from '@/utils/logger';
 import { OpenAI } from 'openai';
-import { getTokenMentions, extractTokenMentions } from '@/utils/farcaster';
+import { getTokenMentions, extractTokenMentions, FarcasterCast } from '@/utils/farcaster';
+
+interface TokenMention {
+  tokenId: string;
+  category?: string;
+}
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -23,9 +28,9 @@ export async function POST(request: Request) {
     // Get art/culture token mentions from Farcaster
     const tokenMentions = await getTokenMentions('art', 20);
     const artTokens = tokenMentions
-      .map(cast => extractTokenMentions(cast.text))
+      .map((cast: FarcasterCast) => extractTokenMentions(cast.text))
       .flat()
-      .filter(mention => mention.category === 'art' || mention.category === 'culture');
+      .filter((mention: TokenMention) => mention.category === 'art' || mention.category === 'culture');
 
     // Get recommendations from OpenAI
     const completion = await openai.chat.completions.create({
@@ -33,7 +38,7 @@ export async function POST(request: Request) {
       messages: [{
         role: "system",
         content: `You are an expert in cultural tokens and digital art. Focus on tokens related to art and culture.
-Current trending art/culture tokens from Farcaster: ${artTokens.map(t => '$' + t.tokenId).join(', ')}
+Current trending art/culture tokens from Farcaster: ${artTokens.map((t: TokenMention) => '$' + t.tokenId).join(', ')}
 
 Provide token recommendations in this format:
 Token Recommendations:
