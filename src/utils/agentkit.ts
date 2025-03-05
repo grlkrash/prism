@@ -20,13 +20,11 @@ interface SendMessageParams {
 
 // SocialFi types
 interface FriendActivity {
-  userId: string
-  username: string
-  action: 'buy' | 'sell' | 'share'
+  timestamp?: string
+  userId?: string
+  username?: string
+  action?: string
   tokenId: string
-  timestamp: string
-  category?: 'art' | 'music' | 'culture' | 'media' | 'entertainment'
-  culturalContext?: string
 }
 
 interface Referral {
@@ -167,25 +165,41 @@ export async function sendMessage({ message, userId, threadId, context }: SendMe
     // Enhance recommendations with Farcaster context
     const enhancedRecommendations = recommendations.map(rec => ({
       ...rec,
-      farcasterMentions: artTokenMentions.filter(m => m.tokenId === rec.symbol).length,
-      trending: artTokenMentions.some(m => m.tokenId === rec.symbol)
+      farcasterMentions: artTokenMentions.filter((m: TokenMention) => m.tokenId === rec.symbol).length,
+      trending: artTokenMentions.some((m: TokenMention) => m.tokenId === rec.symbol)
     }));
 
     return {
-      hasContent: true,
+      id: crypto.randomUUID(),
+      content: data.content,
+      role: 'assistant',
+      timestamp: new Date().toISOString(),
       metadata: {
         tokenRecommendations: enhancedRecommendations,
-        actions
+        actions,
+        friendActivities: friendActivities.map((activity: FriendActivity) => ({
+          timestamp: activity.timestamp || new Date().toISOString(),
+          userId: activity.userId || 'unknown',
+          username: activity.username || 'unknown',
+          action: activity.action || 'share',
+          tokenId: activity.tokenId
+        })),
+        referrals: await getReferrals(userId)
       }
     };
 
   } catch (error) {
     console.error('[ERROR] Agent error:', error);
     return {
-      hasContent: true,
+      id: crypto.randomUUID(),
+      content: error instanceof Error ? error.message : 'Internal server error',
+      role: 'assistant',
+      timestamp: new Date().toISOString(),
       metadata: {
         tokenRecommendations: [],
-        actions: []
+        actions: [],
+        friendActivities: [],
+        referrals: []
       }
     };
   }
