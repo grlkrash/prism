@@ -42,7 +42,7 @@ class FarcasterError extends Error {
 const WARPCAST_API_URL = 'https://api.warpcast.com'
 
 // Auth token generation
-async function generateAuthToken() {
+export async function generateAuthToken() {
   try {
     const fid = process.env.FARCASTER_FID
     const privateKey = process.env.FARCASTER_PRIVATE_KEY

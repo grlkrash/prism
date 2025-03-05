@@ -2,7 +2,10 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import sdk from '@farcaster/frame-sdk'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
-import { useFeed, type TokenItem } from '@/hooks/useFeed'
+import { sendMessage } from '@/utils/agentkit'
+import { getFriendActivities } from '@/utils/agentkit'
+import { getTrendingFeed } from '@/utils/mbdAi'
+import type { TokenItem } from '@/types/token'
 
 interface FrameContext {
   fid?: number
@@ -23,16 +26,13 @@ export default function Demo() {
   const [ethAmount, setEthAmount] = useState<string>('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isContextOpen, setIsContextOpen] = useState(false)
+  const [tokens, setTokens] = useState<TokenItem[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const [cursor, setCursor] = useState<string | undefined>()
   const feedEndRef = useRef<HTMLDivElement>(null)
 
-  const {
-    tokens,
-    isLoading,
-    hasMore,
-    refresh,
-    loadMore
-  } = useFeed()
-
+  // Load SDK and initial data
   useEffect(() => {
     const load = async () => {
       try {
@@ -45,6 +45,7 @@ export default function Demo() {
         if (sdk.actions) {
           await sdk.actions.ready()
           setIsSDKLoaded(true)
+          await loadInitialData(ctx?.user?.fid)
         } else {
           throw new Error('SDK actions not available')
         }
@@ -55,6 +56,61 @@ export default function Demo() {
     }
     load()
   }, [])
+
+  // Load initial data using agent
+  const loadInitialData = async (fid?: number) => {
+    setIsLoading(true)
+    try {
+      // Get recommendations from agent
+      const response = await sendMessage({
+        message: 'Please recommend some trending cultural tokens based on Farcaster activity',
+        userId: fid?.toString() || 'anonymous',
+        context: {
+          userPreferences: {
+            interests: ['art', 'music', 'culture']
+          }
+        }
+      })
+
+      if (response.metadata?.tokenRecommendations) {
+        setTokens(response.metadata.tokenRecommendations)
+      }
+
+      // Get trending feed as fallback
+      const trendingFeed = await getTrendingFeed()
+      if (trendingFeed.next?.cursor) {
+        setCursor(trendingFeed.next.cursor)
+        setHasMore(true)
+      }
+    } catch (error) {
+      console.error('Failed to load initial data:', error)
+      setError('Failed to load recommendations')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Load more data
+  const loadMore = useCallback(async () => {
+    if (isLoading || !hasMore || !cursor) return
+
+    setIsLoading(true)
+    try {
+      const feed = await getTrendingFeed(cursor)
+      if (feed.casts) {
+        setTokens(prev => [...prev, ...feed.casts])
+      }
+      if (feed.next?.cursor) {
+        setCursor(feed.next.cursor)
+      } else {
+        setHasMore(false)
+      }
+    } catch (error) {
+      console.error('Failed to load more:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [cursor, isLoading, hasMore])
 
   // Infinite scroll observer
   useEffect(() => {
@@ -72,12 +128,6 @@ export default function Demo() {
     observer.observe(feedEndRef.current)
     return () => observer.disconnect()
   }, [hasMore, isLoading, loadMore])
-
-  const handlePullToRefresh = useCallback(async () => {
-    setIsRefreshing(true)
-    await refresh()
-    setIsRefreshing(false)
-  }, [refresh])
 
   const calculateTokenAmount = (ethAmt: string, tokenPrice: number) => {
     const eth = parseFloat(ethAmt)
@@ -152,7 +202,15 @@ export default function Demo() {
           >
             {/* Token Image */}
             <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg mb-4 flex items-center justify-center">
-              <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
+              {token.image ? (
+                <img 
+                  src={token.image} 
+                  alt={token.name}
+                  className="w-full h-full object-cover rounded-lg"
+                />
+              ) : (
+                <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
+              )}
             </div>
 
             {/* Token Info */}
