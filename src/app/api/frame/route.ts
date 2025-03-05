@@ -53,7 +53,7 @@ function generateFrameHtml({
 }: {
   imageUrl?: string
   postUrl: string
-  token?: TokenItem & { aiDescription?: string; aiAnalysis?: { sentiment: number; culturalRelevance: number } }
+  token?: TokenItem
   recommendations?: any
   friendActivities?: any[]
   referrals?: any[]
@@ -74,12 +74,7 @@ function generateFrameHtml({
   const description = errorMessage 
     ? errorMessage
     : token 
-      ? `${token.aiDescription || token.description || 'No description available'}\n\nPrice: ${token.price} ETH${
-          token.aiAnalysis 
-            ? `\n\nCultural Relevance: ${token.aiAnalysis.culturalRelevance === 1 ? '🎨 High' : '🖼️ Standard'}
-               Sentiment: ${token.aiAnalysis.sentiment === 1 ? '📈 Positive' : '📊 Neutral'}`
-            : ''
-        }` 
+      ? `${token.description || 'No description available'}\n\nPrice: ${token.price} ETH` 
       : friendActivities?.length 
         ? `Your friends' recent activity:\n${friendActivities.map(activity => 
             `${activity.username || 'Someone'} ${activity.action || 'interacted with'}ed ${activity.tokenId || 'a token'}`
@@ -93,16 +88,20 @@ function generateFrameHtml({
   return `<!DOCTYPE html>
 <html>
   <head>
+    <title>Prism Frame</title>
     <meta property="fc:frame" content="vNext" />
     <meta property="fc:frame:image" content="${imageUrl}" />
     <meta property="fc:frame:post_url" content="${postUrl}" />
     ${buttons.map((btn, i) => `
     <meta property="fc:frame:button:${i + 1}" content="${btn.label}" />
     `).join('')}
-    <meta property="og:title" content="${token ? `${token.name || 'Unknown Token'} (${token.symbol || 'N/A'})` : 'Prism: Cultural Tokens'}" />
     <meta property="og:image" content="${imageUrl}" />
+    <meta property="og:title" content="${token ? `${token.name || 'Unknown Token'} (${token.symbol || 'N/A'})` : 'Prism: Cultural Tokens'}" />
     <meta property="og:description" content="${description}" />
   </head>
+  <body>
+    <h1>Prism Frame</h1>
+  </body>
 </html>`
 }
 
@@ -111,29 +110,18 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url)
     const hostUrl = `${url.protocol}//${url.host}`
     
-    // Get initial trending cultural tokens
-    const response = await sendMessage({
-      message: 'Please analyze trending art and cultural tokens on Farcaster',
-      userId: 'anonymous',
-      threadId: `grlkrash-frame-${randomUUID()}`
-    })
-
-    const token = response.metadata?.tokenRecommendations?.[0]
-    
-    const html = generateFrameHtml({
+    // Return initial frame HTML
+    return new NextResponse(generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: token?.image,
-      token,
-    })
-    
-    return new NextResponse(html, {
+      imageUrl: 'https://placehold.co/1200x630/png'
+    }), {
       headers: {
         'Content-Type': 'text/html',
         'Cache-Control': 'no-store'
       }
     })
   } catch (error) {
-    console.error('Error in GET:', error)
+    logger.error('Error in GET:', error)
     return new NextResponse(generateFrameHtml({
       postUrl: req.url,
       errorMessage: 'Something went wrong. Please try again later.'
@@ -149,10 +137,15 @@ export async function POST(req: NextRequest) {
     const hostUrl = `${url.protocol}//${url.host}`
     
     // Validate frame request
-    const { isValid, message } = await validateFrameRequest(req)
-    if (!isValid || !message) {
+    const body = await req.json()
+    const { untrustedData, trustedData } = body
+    
+    if (!untrustedData?.buttonIndex || !trustedData?.messageBytes) {
       throw new Error('Invalid frame request')
     }
+
+    const message = await validateFrameRequest(body)
+    if (!message) throw new Error('Invalid frame request')
     
     const { button, fid } = message
     
@@ -173,11 +166,6 @@ export async function POST(req: NextRequest) {
     let friendActivities: any[] | undefined = undefined
     let referrals: any[] | undefined = undefined
     let errorMessage: string | undefined
-    
-    // Convert token using AI if available
-    if (currentToken) {
-      currentToken = await convertTokenForAI(currentToken)
-    }
     
     // Handle different button actions
     switch (button) {
@@ -208,25 +196,27 @@ export async function POST(req: NextRequest) {
         }
         break
     }
-    
+
     // Analyze token if we have one
     if (currentToken) {
       const tokenWithId = {
         ...currentToken,
         id: String(currentToken.id || '0'),
+        price: typeof currentToken.price === 'string' ? parseFloat(currentToken.price) : currentToken.price || 0,
         metadata: {
           artistName: 'Unknown Artist',
           culturalScore: 0,
           tokenType: 'ERC20'
         }
-      }
+      } as TokenItem
+
       currentToken = await analyzeToken(tokenWithId)
     }
-    
+
     const html = generateFrameHtml({
       imageUrl: currentToken?.image || 'https://picsum.photos/800/600',
       postUrl: `${hostUrl}/api/frame`,
-      token: currentToken,
+      token: currentToken as TokenItem | undefined,
       recommendations,
       friendActivities,
       referrals,
@@ -235,11 +225,12 @@ export async function POST(req: NextRequest) {
     
     return new NextResponse(html, {
       headers: {
-        'Content-Type': 'text/html'
+        'Content-Type': 'text/html',
+        'Cache-Control': 'no-store'
       }
     })
   } catch (error) {
-    console.error('Error in frame route:', error)
+    logger.error('Error in POST:', error)
     return new NextResponse(generateFrameHtml({
       postUrl: req.url,
       errorMessage: 'Something went wrong. Please try again later.'
