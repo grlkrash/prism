@@ -91,7 +91,7 @@ const llm = new ChatOpenAI({
   maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
 })
 
-export const agent = createReactAgent({
+export const agentInstance = createReactAgent({
   llm,
   tools: [...actionProviders, ...farcasterTools],
   systemMessage: AGENTKIT_CONFIG.SYSTEM_PROMPT,
