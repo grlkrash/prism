@@ -18,6 +18,7 @@ import { MemorySaver } from "@langchain/langgraph"
 import { createReactAgent } from "@langchain/langgraph/prebuilt"
 import { ChatOpenAI } from "@langchain/openai"
 import { AgentExecutor } from "@langchain/core/agents"
+import { agent } from '@/config/agentkit'
 
 class AgentkitError extends Error {
   constructor(message: string, public status?: number, public code?: string) {
@@ -73,7 +74,7 @@ const agent = createReactAgent({
   systemPrompt: AGENTKIT_CONFIG.SYSTEM_PROMPT,
 })
 
-export async function sendMessage(request: AgentRequest): Promise<AgentResponse> {
+export async function sendMessage(request: z.infer<typeof agentRequestSchema>): Promise<z.infer<typeof agentResponseSchema>> {
   try {
     // Validate request
     const validatedRequest = agentRequestSchema.parse(request)
@@ -131,7 +132,7 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
 export async function getTokenRecommendations(userId: string, preferences?: {
   interests?: string[]
   priceRange?: { min?: number; max?: number }
-}, farcasterClient?: any): Promise<AgentResponse> {
+}): Promise<z.infer<typeof agentResponseSchema>> {
   // Ensure priceRange has both min and max values
   const normalizedPreferences = preferences ? {
     ...preferences,
@@ -145,16 +146,12 @@ export async function getTokenRecommendations(userId: string, preferences?: {
     message: 'Please recommend some cultural tokens based on my preferences and Farcaster trends.',
     userId,
     context: {
-      userPreferences: normalizedPreferences,
-      farcasterContext: farcasterClient ? {
-        client: farcasterClient,
-        userFid: userId
-      } : undefined
+      userPreferences: normalizedPreferences
     }
   })
 }
 
-export async function analyzeTokenWithAgent(tokenId: string, userId: string, farcasterClient?: any): Promise<AgentResponse> {
+export async function analyzeTokenWithAgent(tokenId: string, userId: string): Promise<z.infer<typeof agentResponseSchema>> {
   return sendMessage({
     message: `Please analyze this token and provide insights, including Farcaster sentiment: ${tokenId}`,
     userId,
@@ -165,11 +162,7 @@ export async function analyzeTokenWithAgent(tokenId: string, userId: string, far
         description: 'Token Description',
         imageUrl: 'https://example.com/token.jpg',
         price: '0.1 ETH'
-      },
-      farcasterContext: farcasterClient ? {
-        client: farcasterClient,
-        userFid: userId
-      } : undefined
+      }
     }
   })
 } 
