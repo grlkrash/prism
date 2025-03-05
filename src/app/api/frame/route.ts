@@ -3,6 +3,7 @@ import { analyzeToken, getPersonalizedFeed } from '@/utils/mbdAi'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
 import { validateFrameRequest } from '@/utils/mbdAi'
 import { randomUUID } from 'crypto'
+import type { TokenItem } from '@/types/token'
 
 function generateFrameHtml({
   imageUrl = 'https://placehold.co/1200x630/png',
@@ -15,7 +16,7 @@ function generateFrameHtml({
 }: {
   imageUrl?: string
   postUrl: string
-  token?: any
+  token?: TokenItem
   recommendations?: any
   friendActivities?: any[]
   referrals?: any[]
@@ -36,7 +37,7 @@ function generateFrameHtml({
   const description = errorMessage 
     ? errorMessage
     : token 
-      ? `${token.description || 'No description available'}\n\nCultural Score: ${token.culturalScore || 0}/100` 
+      ? `${token.description || 'No description available'}\n\nPrice: ${token.price} ETH` 
       : friendActivities?.length 
         ? `Your friends' recent activity:\n${friendActivities.map(activity => 
             `${activity.username || 'Someone'} ${activity.action || 'interacted with'}ed ${activity.tokenId || 'a token'}`
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: token?.imageUrl,
+      imageUrl: token?.image,
       token,
     })
     
@@ -163,18 +164,20 @@ export async function POST(req: NextRequest) {
     
     // Analyze token if we have one
     if (currentToken) {
-      const tokenWithStringId = {
+      const tokenWithId = {
         ...currentToken,
         id: String(currentToken.id || '0'),
-        artistName: currentToken.artistName || 'Unknown Artist',
-        culturalScore: currentToken.culturalScore || 0,
-        tokenType: 'ERC20' as const
+        metadata: {
+          artistName: 'Unknown Artist',
+          culturalScore: 0,
+          tokenType: 'ERC20'
+        }
       }
-      currentToken = await analyzeToken(tokenWithStringId)
+      currentToken = await analyzeToken(tokenWithId)
     }
     
     const html = generateFrameHtml({
-      imageUrl: currentToken?.imageUrl || 'https://picsum.photos/800/600',
+      imageUrl: currentToken?.image || 'https://picsum.photos/800/600',
       postUrl: `${hostUrl}/api/frame`,
       token: currentToken,
       recommendations,

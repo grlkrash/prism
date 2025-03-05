@@ -98,7 +98,23 @@ export default function Demo() {
     try {
       const feed = await getTrendingFeed(cursor)
       if (feed.casts) {
-        setTokens(prev => [...prev, ...feed.casts])
+        const newTokens: TokenItem[] = feed.casts.map(cast => ({
+          id: cast.hash,
+          name: cast.text.split('\n')[0] || 'Untitled Token',
+          symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+          description: cast.text,
+          price: 0.001, // Default price as number
+          image: cast.author.pfp,
+          category: 'cultural',
+          metadata: {
+            authorFid: cast.author.fid,
+            authorUsername: cast.author.username,
+            timestamp: cast.timestamp,
+            likes: cast.reactions.likes,
+            recasts: cast.reactions.recasts
+          }
+        }))
+        setTokens(prev => [...prev, ...newTokens])
       }
       if (feed.next?.cursor) {
         setCursor(feed.next.cursor)
