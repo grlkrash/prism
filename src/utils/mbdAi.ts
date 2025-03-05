@@ -308,62 +308,38 @@ function checkRateLimit(userId: string): boolean {
 }
 
 // Update makeMbdRequest to handle errors better
-async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): Promise<T> {
+async function makeRequest(endpoint: string, options: RequestInit = {}) {
   try {
-    const apiKey = process.env.MBD_API_KEY
-    if (!apiKey) {
-      throw new MbdApiError('MBD API key not found')
-    }
-
-    const response = await fetch(`${process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'}${endpoint}`, {
-      method: 'POST',
+    const url = new URL(endpoint.startsWith('http') ? endpoint : `${API_URL}/${endpoint}`)
+    const response = await fetch(url, {
+      ...options,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'X-User-Id': userId || 'anonymous'
-      },
-      body: JSON.stringify(data)
+        'Authorization': `Bearer ${API_KEY}`,
+        ...options.headers
+      }
     })
 
     if (!response.ok) {
-      throw new MbdApiError(`API error: ${response.statusText}`, response.status)
+      const errorText = await response.text().catch(() => 'No error details')
+      logger.error(`[ERROR] MBD AI API error: ${response.status} ${response.statusText}`, { errorText })
+      throw new Error(`MBD AI request failed: ${response.status}`)
     }
 
-    const result = await response.json()
-    return result as T
+    return await response.json()
   } catch (error) {
-    logger.error('[ERROR] MBD request failed:', error)
-    throw error instanceof MbdApiError ? error : new MbdApiError('Failed to make MBD request')
+    logger.error('[ERROR] MBD AI request failed:', error)
+    throw error
   }
 }
 
-export async function analyzeToken(token: Token): Promise<Token> {
-  const url = new URL('/analyze/token', MBD_AI_CONFIG.API_URL)
-  
-  const response = await fetch(url.toString(), {
-    method: 'POST',
-    headers: {
-      ...MBD_AI_CONFIG.getHeaders(),
-      'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MBD_API_KEY}`
-    },
-    body: JSON.stringify({ token })
-  })
-
-  if (!response.ok) {
-    throw new Error(`Failed to analyze token: ${response.statusText}`)
-  }
-
-  const { data } = await response.json()
-  return {
-    ...token,
-    metadata: data.metadata,
-    aiAnalysis: {
-      ...data.metadata,
-      culturalScore: calculateCulturalScore({
-        ...token,
-        metadata: data.metadata
-      })
-    }
+export async function analyzeToken(tokenId: string): Promise<Token> {
+  try {
+    const data = await makeRequest(`/tokens/${tokenId}/analyze`)
+    return data.token
+  } catch (error) {
+    logger.error('Failed to analyze token:', error)
+    throw error
   }
 }
 
@@ -476,7 +452,13 @@ export function calculateCulturalScore(token: Token): number {
 
 export async function analyzeImage(imageUrl: string, userId?: string) {
   try {
-    return await makeMbdRequest<ImageAnalysis>('/vision/analyze', { imageUrl }, userId)
+    return await makeRequest<ImageAnalysis>('/vision/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ imageUrl }),
+      headers: {
+        'X-User-Id': userId || 'anonymous'
+      }
+    })
   } catch (error) {
     if (error instanceof RateLimitError) {
       throw error
@@ -540,9 +522,9 @@ export async function getTrendingFeed(cursor?: string) {
 
 export async function searchCasts(query: string, cursor?: string) {
   try {
-    return await makeMbdRequest<FeedResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.SEARCH_SEMANTIC, {
-      query,
-      cursor
+    return await makeRequest<FeedResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.SEARCH_SEMANTIC, {
+      method: 'POST',
+      body: JSON.stringify({ query, cursor })
     })
   } catch (error) {
     if (error instanceof RateLimitError) {
@@ -555,8 +537,9 @@ export async function searchCasts(query: string, cursor?: string) {
 
 export async function getLabelsForCasts(hashes: string[]) {
   try {
-    return await makeMbdRequest<LabelsResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.LABELS_FOR_ITEMS, {
-      hashes
+    return await makeRequest<LabelsResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.LABELS_FOR_ITEMS, {
+      method: 'POST',
+      body: JSON.stringify({ hashes })
     })
   } catch (error) {
     if (error instanceof RateLimitError) {
@@ -569,10 +552,13 @@ export async function getLabelsForCasts(hashes: string[]) {
 
 export async function getSimilarUsers(userId: string, cursor?: string) {
   try {
-    return await makeMbdRequest<UsersResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.USERS_SIMILAR, {
-      userId,
-      cursor
-    }, userId)
+    return await makeRequest<UsersResponse>(MBD_AI_CONFIG.SERVER_ENDPOINTS.USERS_SIMILAR, {
+      method: 'POST',
+      body: JSON.stringify({ userId, cursor }),
+      headers: {
+        'X-User-Id': userId
+      }
+    })
   } catch (error) {
     if (error instanceof RateLimitError) {
       throw error

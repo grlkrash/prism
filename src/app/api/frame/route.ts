@@ -117,70 +117,38 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { isValid, message } = await validateFrameRequest(req)
-
-    if (!isValid) {
-      return new Response(
-        generateFrameHtml({
-          postUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/frame`,
-          imageUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/error.png`,
-          errorMessage: 'Invalid frame request'
-        }),
-        { headers: { 'Content-Type': 'text/html' } }
-      )
+    const validation = await validateFrameRequest(req)
+    if (!validation.isValid) {
+      return new Response(generateFrameHtml({
+        postUrl: req.url,
+        errorMessage: 'Invalid frame request'
+      }), {
+        headers: { 'Content-Type': 'text/html' }
+      })
     }
 
-    const fid = message?.fid
-    const buttonIndex = message?.button || 1
-
-    // Get recommendations based on user context
+    const { message } = validation
     const response = await sendMessage({
       message: 'Show me cultural tokens in art category',
-      userId: fid || 'anonymous',
-      threadId: `grlkrash-frame-${randomUUID()}`,
-      context: {
-        category: 'art',
-        buttonIndex
-      }
+      userId: message?.fid || 'anonymous',
+      context: { button: message?.button }
     })
 
-    // Extract token recommendations from response
-    const recommendations = response?.metadata?.tokenRecommendations || []
-    const currentToken = recommendations[0]
-
-    // If no recommendations, show default view
-    if (!currentToken) {
-      return new Response(
-        generateFrameHtml({
-          postUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/frame`,
-          imageUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/placeholder.png`,
-          errorMessage: 'No recommendations available. Try again!'
-        }),
-        { headers: { 'Content-Type': 'text/html' } }
-      )
-    }
-    
-    // Format frame response based on content
-    return new Response(
-      generateFrameHtml({
-        postUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/frame`,
-        imageUrl: currentToken.imageUrl || `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/placeholder.png`,
-        token: currentToken,
-        recommendations
-      }),
-      { headers: { 'Content-Type': 'text/html' } }
-    )
-
+    return new Response(generateFrameHtml({
+      postUrl: req.url,
+      recommendations: response.recommendations || [],
+      token: response.token
+    }), {
+      headers: { 'Content-Type': 'text/html' }
+    })
   } catch (error) {
-    console.error('Frame error:', error)
-    return new Response(
-      generateFrameHtml({
-        postUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/frame`,
-        imageUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/error.png`,
-        errorMessage: 'Something went wrong. Please try again.'
-      }),
-      { headers: { 'Content-Type': 'text/html' } }
-    )
+    logger.error('Error in frame POST:', error)
+    return new Response(generateFrameHtml({
+      postUrl: req.url,
+      errorMessage: 'An error occurred processing your request'
+    }), {
+      headers: { 'Content-Type': 'text/html' }
+    })
   }
 }
 
@@ -191,10 +159,6 @@ interface FrameMessage {
 
 async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
-    const data = await req.json()
-    const { untrustedData } = data
-
-    // In development, always return valid
     if (process.env.NODE_ENV === 'development') {
       return {
         isValid: true,
@@ -204,6 +168,9 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
         }
       }
     }
+
+    const body = await req.json()
+    const { untrustedData } = body
 
     // Validate required fields
     if (!untrustedData || !untrustedData.fid) {

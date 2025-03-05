@@ -119,89 +119,61 @@ export async function getReferrals(userId: string): Promise<Referral[]> {
   return []
 }
 
-export async function sendMessage({ message, userId, threadId, context }: SendMessageParams): Promise<AgentResponse> {
+export async function sendMessage({ message, userId, context = {} }: SendMessageParams): Promise<AgentResponse> {
   try {
-    // Get friend activities and token mentions from Farcaster
-    const friendActivities = await getFriendActivities(userId);
-    const artTokenMentions = friendActivities
-      .map((activity: FriendActivity) => extractTokenMentions(activity.tokenId))
-      .flat()
-      .filter((mention: TokenMention) => mention.category === 'art' || mention.category === 'culture');
+    logger.info('Agent request:', { message, userId, hasContext: !!context })
 
-    // Log request with Farcaster context
-    console.info('[INFO] Agent request:', { 
-      message, 
-      userId, 
-      hasContext: !!context,
-      artTokenMentions 
-    });
-
-    // Get agent response
-    const response = await fetch(`${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        message, 
-        userId, 
-        threadId, 
-        context: {
-          ...context,
-          artTokenMentions
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Agent request failed: ${response.status}`);
+    // Get friend activities
+    let friendActivities: FriendActivity[] = []
+    try {
+      friendActivities = await getFriendActivities(userId)
+    } catch (error) {
+      logger.error('Error fetching friend activities:', error)
     }
 
-    const data = await response.json();
-    console.info('[INFO] Raw agent response:', data);
+    // Get referrals
+    let referrals: Referral[] = []
+    try {
+      referrals = await getReferrals(userId)
+    } catch (error) {
+      logger.error('Error fetching referrals:', error)
+    }
 
-    // Parse recommendations from content
-    const recommendations = parseRecommendations(data.content);
-    const actions = parseActions(data.content);
-
-    // Enhance recommendations with Farcaster context
-    const enhancedRecommendations = recommendations.map(rec => ({
-      ...rec,
-      farcasterMentions: artTokenMentions.filter((m: TokenMention) => m.tokenId === rec.symbol).length,
-      trending: artTokenMentions.some((m: TokenMention) => m.tokenId === rec.symbol)
-    }));
-
-    return {
-      id: crypto.randomUUID(),
-      content: data.content,
-      role: 'assistant',
-      timestamp: new Date().toISOString(),
-      metadata: {
-        tokenRecommendations: enhancedRecommendations,
-        actions,
-        friendActivities: friendActivities.map((activity: FriendActivity) => ({
-          timestamp: activity.timestamp || new Date().toISOString(),
-          userId: activity.userId || 'unknown',
-          username: activity.username || 'unknown',
-          action: activity.action || 'share',
-          tokenId: activity.tokenId
-        })),
-        referrals: await getReferrals(userId)
+    // Prepare request
+    const request: AgentRequest = {
+      message,
+      userId,
+      context: {
+        ...context,
+        friendActivities,
+        referrals
       }
-    };
+    }
+
+    // Validate request
+    const validatedRequest = agentRequestSchema.parse(request)
+
+    // Get agent response
+    const agent = getAgent()
+    const response = await agent.invoke([new HumanMessage(validatedRequest.message)])
+    
+    // Parse response
+    const content = response.content as string
+    const parsedResponse = {
+      content,
+      hasContent: true,
+      recommendationsCount: (content.match(/\$[A-Z]+/g) || []).length,
+      actionsCount: (content.match(/\|/g) || []).length,
+      friendActivitiesCount: friendActivities.length,
+      referralsCount: referrals.length
+    }
+
+    logger.info('Final response:', parsedResponse)
+    return parsedResponse
 
   } catch (error) {
-    console.error('[ERROR] Agent error:', error);
-    return {
-      id: crypto.randomUUID(),
-      content: error instanceof Error ? error.message : 'Internal server error',
-      role: 'assistant',
-      timestamp: new Date().toISOString(),
-      metadata: {
-        tokenRecommendations: [],
-        actions: [],
-        friendActivities: [],
-        referrals: []
-      }
-    };
+    logger.error('Agent error:', error)
+    throw new AgentkitError('Failed to process message', 500)
   }
 }
 
