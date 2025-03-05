@@ -108,26 +108,53 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
       }
     }
 
-    const result: AgentResponse = {
+    // Ensure we have a valid response object
+    const responseObj = {
       id: crypto.randomUUID(),
-      content: typeof agentResponse.content === 'string' ? 
-        agentResponse.content : 
-        JSON.stringify(agentResponse.content),
+      content: typeof agentResponse === 'string' ? 
+        agentResponse : 
+        typeof agentResponse.content === 'string' ? 
+          agentResponse.content : 
+          'No response content',
       role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
-        tokenRecommendations: agentResponse.recommendations || [],
-        actions: agentResponse.actions || [],
+        tokenRecommendations: Array.isArray(agentResponse.recommendations) ? 
+          agentResponse.recommendations : [],
+        actions: Array.isArray(agentResponse.actions) ? 
+          agentResponse.actions : [],
         friendActivities,
-        referrals: validatedRequest.userId ? await getReferrals(validatedRequest.userId) : []
+        referrals: []
       }
     }
 
-    return agentResponseSchema.parse(result)
+    // Try to get referrals if we have a userId
+    if (validatedRequest.userId) {
+      try {
+        responseObj.metadata.referrals = await getReferrals(validatedRequest.userId)
+      } catch (error) {
+        console.error('Error fetching referrals:', error)
+      }
+    }
+
+    // Validate the response against our schema
+    return agentResponseSchema.parse(responseObj)
   } catch (error) {
     console.error('Error in sendMessage:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error'
-    throw new Error(errorMessage)
+    
+    // Return a valid error response that matches our schema
+    return agentResponseSchema.parse({
+      id: crypto.randomUUID(),
+      content: error instanceof Error ? error.message : 'Internal server error',
+      role: 'assistant',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        tokenRecommendations: [],
+        actions: [],
+        friendActivities: [],
+        referrals: []
+      }
+    })
   }
 }
 
