@@ -18,7 +18,21 @@ export const agentResponseSchema = z.object({
   timestamp: z.string(),
   metadata: z.object({
     tokenRecommendations: z.array(z.any()),
-    actions: z.array(z.any())
+    actions: z.array(z.any()),
+    friendActivities: z.array(z.object({
+      userId: z.string(),
+      username: z.string(),
+      action: z.enum(['buy', 'sell', 'share']),
+      tokenId: z.string(),
+      timestamp: z.string()
+    })),
+    referrals: z.array(z.object({
+      referrerId: z.string(),
+      referredId: z.string(),
+      tokenId: z.string(),
+      timestamp: z.string(),
+      reward: z.number()
+    }))
   })
 })
 

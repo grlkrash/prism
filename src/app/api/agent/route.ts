@@ -1,7 +1,6 @@
 // app/api/agent/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { getAgent } from '@/config/agentkit';
-import { extractTokenRecommendations, extractActions, sendMessage } from '@/utils/agentkit';
+import { NextResponse } from 'next/server';
+import { sendMessage } from '@/utils/agentkit';
 import { logger } from '@/utils/logger';
 
 export async function POST(request: Request) {
