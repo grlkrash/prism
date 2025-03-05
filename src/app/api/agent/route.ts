@@ -25,8 +25,8 @@ export async function POST(req: NextRequest) {
     // Process with agent
     const response = await sendMessage({
       message: validatedData.message,
-      userId: validatedData.userId || 'anonymous',
-      context: validatedData.context || {}
+      userId: validatedData.userId,
+      context: validatedData.context
     })
     
     // Ensure response is valid before sending

@@ -26,6 +26,13 @@ class AgentkitError extends Error {
   }
 }
 
+class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RateLimitError'
+  }
+}
+
 // Rate limiting configuration
 const RATE_LIMIT = {
   maxRequests: 100,
@@ -86,12 +93,17 @@ async function initializeAgent() {
 
     const tools = await getLangChainTools(agentkit)
 
-    // Create React Agent
+    // Create React Agent with thread_id configuration
     const agent = createReactAgent({
       llm,
       tools,
       checkpointSaver: memory,
-      messageModifier: AGENTKIT_CONFIG.SYSTEM_PROMPT
+      messageModifier: AGENTKIT_CONFIG.SYSTEM_PROMPT,
+      config: {
+        configurable: {
+          thread_id: "grlkrash-agent-" + crypto.randomUUID()
+        }
+      }
     })
 
     return agent
@@ -111,40 +123,57 @@ export async function getAgent() {
 export async function sendMessage(request: unknown): Promise<any> {
   try {
     // Validate request
-    const { message, userId } = z.object({
+    const { message, userId, context } = z.object({
       message: z.string(),
       userId: z.string().optional(),
       context: z.record(z.any()).optional()
     }).parse(request)
 
     // Check rate limit
-    if (!checkRateLimit(userId || '')) {
+    if (userId && !checkRateLimit(userId)) {
       throw new RateLimitError('Rate limit exceeded')
     }
 
     // Get agent instance
     const agent = await getAgent()
     
+    // Generate thread ID
+    const threadId = userId ? `user-${userId}` : `anonymous-${crypto.randomUUID()}`
+    
     // Call agent with message
     const result = await agent.invoke({
-      messages: [new HumanMessage(message)]
+      messages: [new HumanMessage(message)],
+      config: {
+        configurable: {
+          thread_id: threadId
+        }
+      }
     })
 
+    // Extract content from agent response
+    const content = result.generations[0].text || result.output || ''
+    
     // Format response
     return {
       id: crypto.randomUUID(),
-      content: result.output,
+      content,
       role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
-        tokenRecommendations: extractTokenRecommendations(result.output),
-        actions: extractActions(result.output)
+        tokenRecommendations: extractTokenRecommendations(content),
+        actions: extractActions(content)
       }
     }
 
   } catch (error) {
     logger.error('Error in sendMessage:', error)
-    throw error
+    if (error instanceof z.ZodError) {
+      throw new AgentkitError('Invalid request format', 400)
+    }
+    if (error instanceof RateLimitError) {
+      throw new AgentkitError('Rate limit exceeded', 429)
+    }
+    throw new AgentkitError('Internal server error', 500)
   }
 }
 

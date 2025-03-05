@@ -10,12 +10,14 @@ import {
   pythActionProvider,
 } from "@coinbase/agentkit"
 import { ChatOpenAI } from "@langchain/openai"
-import { SystemMessage } from "@langchain/core/messages"
+import { SystemMessage, HumanMessage } from "@langchain/core/messages"
 import { searchCasts, getUserProfile, getTokenMentions } from '@/utils/farcaster'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { ChatPromptTemplate } from "@langchain/core/prompts"
-import { createStructuredOutputChainFromZod } from "langchain/chains/openai_functions"
-import { JsonOutputFunctionsParser } from "@langchain/core/output_parsers"
+import { StructuredOutputParser } from "@langchain/core/output_parsers"
+import { createReactAgent } from "@langchain/langgraph/prebuilt"
+import { MemorySaver } from "@langchain/langgraph"
+import { RunnableConfig } from "@langchain/core/runnables"
 
 export const AGENTKIT_CONFIG = {
   API_URL: process.env.AGENTKIT_API_URL || 'https://api.agentkit.coinbase.com',
@@ -41,7 +43,13 @@ export const AGENTKIT_CONFIG = {
   }
 }
 
-// Initialize tools
+// Define agent output type
+export interface AgentOutput {
+  output: string
+  actions?: string[]
+}
+
+// Initialize tools and memory
 const tools = [
   new DynamicStructuredTool({
     name: "searchCasts",
@@ -77,15 +85,15 @@ const tools = [
   })
 ]
 
-// Initialize the model
+const memory = new MemorySaver()
+
+// Initialize the model with streaming disabled
 const llm = new ChatOpenAI({
   modelName: AGENTKIT_CONFIG.MODEL,
   temperature: AGENTKIT_CONFIG.TEMPERATURE,
   maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
   openAIApiKey: process.env.OPENAI_API_KEY,
-  modelKwargs: {
-    response_format: { type: "json_object" }
-  }
+  streaming: false
 })
 
 let agentInstance: any = null
@@ -93,20 +101,14 @@ let agentInstance: any = null
 // Create agent chain
 export async function getAgent() {
   if (!agentInstance) {
-    const prompt = ChatPromptTemplate.fromMessages([
-      ["system", AGENTKIT_CONFIG.SYSTEM_PROMPT],
-      ["human", "{input}"]
-    ])
-
-    const outputParser = new JsonOutputFunctionsParser({
-      argsSchema: z.object({
-        response: z.string(),
-        actions: z.array(z.string()).optional()
-      })
+    const agent = await createReactAgent({
+      llm,
+      tools,
+      systemMessage: AGENTKIT_CONFIG.SYSTEM_PROMPT,
+      checkpointSaver: memory
     })
-
-    const chain = prompt.pipe(llm).pipe(outputParser)
-    agentInstance = chain
+    
+    agentInstance = agent
   }
   return agentInstance
 }
