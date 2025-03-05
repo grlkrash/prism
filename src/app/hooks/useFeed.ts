@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 export interface TokenItem {
   id: string
@@ -92,7 +92,7 @@ export function useFeed(): UseFeedReturn {
   }, [isLoading, hasMore, page])
 
   // Initial load
-  useState(() => {
+  useEffect(() => {
     refresh()
   }, [refresh])
 
