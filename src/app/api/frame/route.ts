@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { PinataFDK } from 'pinata-fdk'
 import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
-import { analyzeToken, getPersonalizedFeed } from '@/utils/mbdAi'
+import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast } from '@/utils/mbdAi'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { OpenAI } from 'openai'
@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
         if (fid) {
           const feedResponse = await getPersonalizedFeed(fid)
           if (feedResponse?.casts) {
-            recommendations = feedResponse.casts.map(cast => ({
+            recommendations = feedResponse.casts.map((cast: Cast) => ({
               id: cast.hash,
               name: cast.author.username,
               symbol: 'TOKEN',

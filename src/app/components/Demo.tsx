@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { sendMessage } from '@/utils/agentkit'
-import { getTrendingFeed } from '@/utils/mbdAi'
+import { getTrendingFeed, analyzeToken, type Cast as MbdCast } from '@/utils/mbdAi'
 import type { TokenItem } from '@/types/token'
 import sdk from '@farcaster/frame-sdk'
 import CuratorLeaderboard from '@/components/SocialFi'
@@ -195,7 +195,7 @@ export default function Demo() {
       if (!hasData) {
         const trendingFeed = await getTrendingFeed()
         if (trendingFeed.casts) {
-          const newTokens = await Promise.all(trendingFeed.casts.map(async cast => {
+          const newTokens = await Promise.all(trendingFeed.casts.map(async (cast: MbdCast) => {
             // Extract token info
             const token: TokenItem = {
               id: cast.hash,
@@ -295,7 +295,7 @@ export default function Demo() {
     try {
       const feed = await getTrendingFeed(cursor)
       if (feed.casts) {
-        const newTokens = feed.casts.map(cast => ({
+        const newTokens = feed.casts.map((cast: MbdCast) => ({
           id: cast.hash,
           name: cast.text.split('\n')[0] || 'Untitled Token',
           symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
@@ -441,7 +441,7 @@ export default function Demo() {
         setError(null)
         const response = await getTrendingFeed()
         if (response?.casts) {
-          const newTokens = response.casts.map(cast => ({
+          const newTokens = response.casts.map((cast: MbdCast) => ({
             id: cast.hash,
             name: cast.text.split('\n')[0] || 'Untitled Token',
             symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
@@ -486,7 +486,7 @@ export default function Demo() {
       setError(null)
       const response = await getTrendingFeed(cursor)
       if (response?.casts) {
-        const newTokens = response.casts.map(cast => ({
+        const newTokens = response.casts.map((cast: MbdCast) => ({
           id: cast.hash,
           name: cast.text.split('\n')[0] || 'Untitled Token',
           symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',

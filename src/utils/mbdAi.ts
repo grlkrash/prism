@@ -185,7 +185,7 @@ interface ImageAnalysis {
   hasMediaElements: boolean
 }
 
-interface Cast {
+export interface Cast {
   hash: string
   threadHash?: string
   parentHash?: string
@@ -533,7 +533,7 @@ export async function getTrendingFeed(cursor?: string) {
   
   // Ensure we return different data for pagination
   if (cursor) {
-    data.casts = data.casts.map(cast => ({
+    data.casts = data.casts.map((cast: Cast) => ({
       ...cast,
       hash: `${cast.hash}-${cursor}`
     }))
