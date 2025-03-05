@@ -37,17 +37,31 @@ class FarcasterError extends Error {
   }
 }
 
-// Warpcast API base URL
-const WARPCAST_API_URL = 'https://api.warpcast.com/v2'
+// Warpcast API configuration
+const WARPCAST_API_URL = 'https://api.warpcast.com'
+
+// Helper function to make API requests
+async function warpcastRequest(endpoint: string) {
+  try {
+    const response = await fetch(`${WARPCAST_API_URL}${endpoint}`)
+
+    if (!response.ok) {
+      throw new FarcasterError(`API request failed: ${response.statusText}`, response.status)
+    }
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    logger.error(`Warpcast API error for ${endpoint}:`, error)
+    throw error
+  }
+}
 
 // Get user profile
 export async function getUserProfile(fid: string) {
   try {
-    const response = await fetch(`${WARPCAST_API_URL}/user?fid=${fid}`)
-    if (!response.ok) {
-      throw new FarcasterError('Failed to get user profile', response.status)
-    }
-    return await response.json()
+    const data = await warpcastRequest(`/v1/user?fid=${fid}`)
+    return data.result.user
   } catch (error) {
     logger.error('Failed to get Farcaster user profile:', error)
     throw new FarcasterError('Failed to get Farcaster user profile')
@@ -57,11 +71,7 @@ export async function getUserProfile(fid: string) {
 // Get user's following list
 export async function getFarcasterFollowing(fid: string): Promise<FarcasterUser[]> {
   try {
-    const response = await fetch(`${WARPCAST_API_URL}/user/following?fid=${fid}`)
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Farcaster following: ${response.statusText}`)
-    }
-    const data = await response.json()
+    const data = await warpcastRequest(`/fc/following?fid=${fid}`)
     return data.result?.users || []
   } catch (error) {
     logger.error('Error fetching Farcaster following:', error)
@@ -72,11 +82,7 @@ export async function getFarcasterFollowing(fid: string): Promise<FarcasterUser[
 // Get user's casts
 export async function getFarcasterCasts(fid: string, limit: number = 10): Promise<FarcasterCast[]> {
   try {
-    const response = await fetch(`${WARPCAST_API_URL}/user/casts?fid=${fid}&limit=${limit}`)
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Farcaster casts: ${response.statusText}`)
-    }
-    const data = await response.json()
+    const data = await warpcastRequest(`/v2/casts?fid=${fid}&limit=${limit}`)
     return data.result?.casts || []
   } catch (error) {
     logger.error('Error fetching Farcaster casts:', error)
@@ -87,11 +93,8 @@ export async function getFarcasterCasts(fid: string, limit: number = 10): Promis
 // Search casts
 export async function searchCasts(query: string, limit: number = 10) {
   try {
-    const response = await fetch(`${WARPCAST_API_URL}/search?q=${encodeURIComponent(query)}&limit=${limit}`)
-    if (!response.ok) {
-      throw new FarcasterError('Failed to search casts', response.status)
-    }
-    return await response.json()
+    const data = await warpcastRequest(`/v2/search-casts?q=${encodeURIComponent(query)}&limit=${limit}`)
+    return data.result.casts
   } catch (error) {
     logger.error('Failed to search Farcaster casts:', error)
     throw new FarcasterError('Failed to search Farcaster casts')
@@ -101,11 +104,8 @@ export async function searchCasts(query: string, limit: number = 10) {
 // Get token mentions
 export async function getTokenMentions(tokenName: string, limit: number = 10) {
   try {
-    const response = await fetch(`${WARPCAST_API_URL}/search?q=$${tokenName}&limit=${limit}`)
-    if (!response.ok) {
-      throw new FarcasterError('Failed to get token mentions', response.status)
-    }
-    return await response.json()
+    const data = await warpcastRequest(`/v2/search-casts?q=$${tokenName}&limit=${limit}`)
+    return data.result.casts
   } catch (error) {
     logger.error('Failed to get token mentions:', error)
     throw new FarcasterError('Failed to get token mentions')
