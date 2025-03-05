@@ -10,7 +10,7 @@ function generateFrameHtml({
   imageUrl: string
   postUrl: string
   token?: any
-  recommendations?: any[]
+  recommendations?: any[] | null
 }) {
   const buttons = token ? [
     { label: 'View Details', action: 'view' },
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       postUrl: `${hostUrl}/api/frame`,
       imageUrl: currentToken?.imageUrl || 'https://placehold.co/1200x630/png',
       token: currentToken,
-      recommendations
+      recommendations: recommendations || undefined
     })
     
     return new NextResponse(html, {
