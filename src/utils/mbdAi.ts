@@ -309,23 +309,30 @@ function checkRateLimit(userId: string): boolean {
 
 // Update makeMbdRequest to handle errors better
 async function makeRequest(endpoint: string, options: RequestInit = {}) {
-  const url = endpoint.startsWith('http') ? endpoint : `${MBD_AI_CONFIG.API_URL}${endpoint}`
-  
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...MBD_AI_CONFIG.getHeaders(),
-      ...options.headers
+  try {
+    const url = endpoint.startsWith('http') ? endpoint : `${MBD_AI_CONFIG.API_URL}${endpoint}`
+    
+    // Get headers from config
+    const headers = MBD_AI_CONFIG.getHeaders()
+    
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...headers,
+        ...options.headers
+      }
+    })
+
+    if (!response.ok) {
+      logger.error(`MBD AI request failed: ${response.status} ${response.statusText}`)
+      throw new Error(`MBD AI request failed: ${response.status}`)
     }
-  })
 
-  if (!response.ok) {
-    const error = await response.text()
-    logger.error('MBD AI request failed:', { endpoint, status: response.status, error })
-    throw new MbdApiError('API request failed', response.status)
+    return await response.json()
+  } catch (error) {
+    logger.error('MBD AI request error:', error)
+    throw error
   }
-
-  return response.json()
 }
 
 export async function analyzeToken(tokenId: string): Promise<Token> {

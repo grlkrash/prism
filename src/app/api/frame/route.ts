@@ -128,16 +128,51 @@ export async function POST(req: NextRequest) {
     }
 
     const { message } = validation
-    const response = await sendMessage({
-      message: 'Show me cultural tokens in art category',
-      userId: message?.fid || 'anonymous',
-      context: { button: message?.button }
-    })
+    
+    // Get recommendations from both agent and MBD AI
+    const [agentResponse, mbdResponse] = await Promise.all([
+      sendMessage({
+        message: 'Show me cultural tokens in art category',
+        userId: message?.fid || 'anonymous',
+        context: { button: message?.button }
+      }),
+      getPersonalizedFeed()
+    ])
+
+    // Combine recommendations
+    const recommendations = [
+      ...(agentResponse.metadata?.tokenRecommendations || []),
+      ...(mbdResponse?.data?.casts || [])
+        .filter(cast => cast.aiAnalysis?.hasCulturalElements)
+        .map(cast => ({
+          id: cast.hash,
+          name: cast.text.slice(0, 50),
+          symbol: 'CULT',
+          description: cast.text,
+          imageUrl: 'https://placehold.co/1200x630/png',
+          culturalScore: cast.aiAnalysis?.culturalScore || 0
+        }))
+    ]
+
+    // If no recommendations, return error message
+    if (recommendations.length === 0) {
+      return new Response(generateFrameHtml({
+        postUrl: req.url,
+        errorMessage: 'No cultural tokens found at the moment'
+      }), {
+        headers: { 'Content-Type': 'text/html' }
+      })
+    }
+
+    // Get the current token based on button index
+    const currentIndex = ((message?.button || 1) - 1) % recommendations.length
+    const currentToken = recommendations[currentIndex]
 
     return new Response(generateFrameHtml({
       postUrl: req.url,
-      recommendations: response.metadata?.tokenRecommendations || [],
-      token: response.metadata?.tokenRecommendations?.[0]
+      recommendations,
+      token: currentToken,
+      imageUrl: currentToken.imageUrl
     }), {
       headers: { 'Content-Type': 'text/html' }
     })
@@ -159,6 +194,7 @@ interface FrameMessage {
 
 async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
+    // Always return test data in development
     if (process.env.NODE_ENV === 'development') {
       return {
         isValid: true,
@@ -170,20 +206,27 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
     }
 
     const body = await req.json()
-    const { untrustedData } = body
-
-    // Validate required fields
-    if (!untrustedData || !untrustedData.fid) {
-      logger.error('Invalid frame request: Missing required fields')
+    
+    // Basic validation of request body
+    if (!body || typeof body !== 'object') {
+      logger.error('Invalid frame request: Missing or invalid request body')
       return { isValid: false }
     }
 
-    // Extract button index and fid
-    const buttonIndex = untrustedData.buttonIndex || 1
-    const fid = untrustedData.fid
+    const { untrustedData } = body
+
+    // Validate required fields
+    if (!untrustedData || typeof untrustedData !== 'object') {
+      logger.error('Invalid frame request: Missing untrustedData')
+      return { isValid: false }
+    }
+
+    // Extract button index and fid with defaults
+    const buttonIndex = Number(untrustedData.buttonIndex) || 1
+    const fid = untrustedData.fid || 'anonymous'
 
     // Validate button index
-    if (typeof buttonIndex !== 'number' || buttonIndex < 1 || buttonIndex > 4) {
+    if (buttonIndex < 1 || buttonIndex > 4) {
       logger.error('Invalid frame request: Invalid button index')
       return { isValid: false }
     }
