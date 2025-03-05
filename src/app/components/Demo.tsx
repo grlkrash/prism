@@ -133,13 +133,15 @@ export default function Demo() {
             price: 0.001,
             image: cast.author.pfp,
             category: 'cultural',
+            social: {
+              website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+            },
             metadata: {
               authorFid: String(cast.author.fid),
               authorUsername: cast.author.username,
               timestamp: Number(cast.timestamp),
               likes: cast.reactions.likes,
-              recasts: cast.reactions.recasts,
-              contractAddress: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS as string
+              recasts: cast.reactions.recasts
             }
           }))
           setTokens(newTokens)
@@ -182,13 +184,15 @@ export default function Demo() {
           price: 0.001,
           image: cast.author.pfp,
           category: 'cultural',
+          social: {
+            website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+          },
           metadata: {
             authorFid: String(cast.author.fid),
             authorUsername: cast.author.username,
             timestamp: Number(cast.timestamp),
             likes: cast.reactions.likes,
-            recasts: cast.reactions.recasts,
-            contractAddress: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS as string
+            recasts: cast.reactions.recasts
           }
         }))
         setTokens(prev => [...prev, ...newTokens])
@@ -232,7 +236,7 @@ export default function Demo() {
       return
     }
 
-    const contractAddress = token.metadata?.contractAddress || process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+    const contractAddress = token.social?.website || process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
     if (!contractAddress) {
       setError('No contract address available for this token')
       return
