@@ -22,7 +22,8 @@ interface UseFeedReturn {
 
 export function useFeed(): UseFeedReturn {
   const [tokens, setTokens] = useState<TokenItem[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(1)
@@ -31,6 +32,11 @@ export function useFeed(): UseFeedReturn {
   const fetchTokens = async (pageNum: number) => {
     // Simulate API delay
     await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    // Simulate pagination end after 3 pages
+    if (pageNum > 3) {
+      return []
+    }
     
     const mockTokens: TokenItem[] = [
       {
@@ -62,16 +68,17 @@ export function useFeed(): UseFeedReturn {
       const newTokens = await fetchTokens(1)
       setTokens(newTokens)
       setPage(1)
-      setHasMore(true)
+      setHasMore(newTokens.length > 0)
     } catch (error) {
       console.error('Failed to refresh feed:', error)
     } finally {
       setIsRefreshing(false)
+      setIsInitialLoad(false)
     }
   }, [])
 
   const loadMore = useCallback(async () => {
-    if (isLoading || !hasMore) return
+    if (isLoading || isRefreshing || !hasMore) return
 
     try {
       setIsLoading(true)
@@ -89,16 +96,18 @@ export function useFeed(): UseFeedReturn {
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, hasMore, page])
+  }, [isLoading, isRefreshing, hasMore, page])
 
   // Initial load
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    if (isInitialLoad) {
+      refresh()
+    }
+  }, [refresh, isInitialLoad])
 
   return {
     tokens,
-    isLoading,
+    isLoading: isInitialLoad || isLoading,
     isRefreshing,
     hasMore,
     refresh,
