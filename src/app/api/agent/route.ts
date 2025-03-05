@@ -1,6 +1,8 @@
 // app/api/agent/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createAgent } from 'agentkit';
+import { sendMessage, getTokenRecommendations, analyzeTokenWithAgent } from '@/utils/agentkit';
+import { agentRequestSchema } from '@/config/agentkit';
+import { logger } from '@/utils/logger';
 
 // This is a simplified implementation - in a real app, you would connect to the actual MBD AI API
 const mbdAnalyzeTokens = async (query: string) => {
@@ -39,50 +41,53 @@ const mbdAnalyzeTokens = async (query: string) => {
 // Implement the agent handler
 export async function POST(req: NextRequest) {
   try {
-    const { query } = await req.json();
+    const body = await req.json();
+    const validatedRequest = agentRequestSchema.parse(body);
+
+    let response;
+    switch (validatedRequest.message.toLowerCase()) {
+      case 'recommend tokens':
+        response = await getTokenRecommendations(
+          validatedRequest.userId || 'anonymous',
+          validatedRequest.context?.userPreferences
+        );
+        break;
+      case 'analyze token':
+        if (!validatedRequest.context?.currentToken?.id) {
+          return NextResponse.json(
+            { error: 'Token ID is required for analysis' },
+            { status: 400 }
+          );
+        }
+        response = await analyzeTokenWithAgent(
+          validatedRequest.context.currentToken.id,
+          validatedRequest.userId || 'anonymous'
+        );
+        break;
+      default:
+        response = await sendMessage(validatedRequest);
+    }
+
+    return NextResponse.json(response);
+  } catch (error) {
+    logger.error('Error in agent API route:', error);
     
-    if (!query || typeof query !== 'string') {
+    if (error.name === 'ZodError') {
       return NextResponse.json(
-        { error: 'Invalid query parameter' },
+        { error: 'Invalid request parameters' },
         { status: 400 }
       );
     }
-    
-    // Analyze the query using our simulated MBD AI function
-    const recommendations = await mbdAnalyzeTokens(query);
-    
-    // Format the agent response
-    const responseText = `Based on your interest in ${query}, I recommend exploring these cultural tokens:
-    
-    ${recommendations.map((token, index) => `${index + 1}. ${token}`).join('\n')}
-    
-    These recommendations match your preferences based on community engagement, artistic merit, and cultural relevance. Would you like more specific recommendations?`;
-    
-    // Build the response for the Farcaster Frame
-    const frameHtml = `<!DOCTYPE html>
-    <html>
-      <head>
-        <meta property="fc:frame" content="vNext" />
-        <meta property="fc:frame:image" content="https://placehold.co/600x400/4169E1/FFFFFF?text=Your+Recommendations" />
-        <meta property="fc:frame:button:1" content="View ${recommendations[0]}" />
-        <meta property="fc:frame:button:2" content="View ${recommendations[1]}" />
-        <meta property="fc:frame:button:3" content="More Recommendations" />
-        <meta property="fc:frame:button:4" content="Back to Gallery" />
-        <meta property="og:title" content="Prism: Your Personalized Recommendations" />
-        <meta property="og:description" content="Cultural tokens matched to your interests" />
-      </head>
-    </html>`;
-    
-    return NextResponse.json({
-      agentResponse: responseText,
-      frameHtml: frameHtml,
-      recommendations: recommendations
-    });
-    
-  } catch (error) {
-    console.error('Agent error:', error);
+
+    if (error.name === 'RateLimitError') {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Failed to process agent request' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

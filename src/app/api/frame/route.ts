@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeToken, getPersonalizedFeed, tokenDatabase } from '@/utils/mbdAi'
+import { FeedResponse } from '@/utils/mbdAi'
 
 function generateFrameHtml({
   imageUrl,
@@ -10,7 +11,7 @@ function generateFrameHtml({
   imageUrl: string
   postUrl: string
   token?: any
-  recommendations?: any[] | null
+  recommendations?: FeedResponse | null
 }) {
   const buttons = token ? [
     { label: 'View Details', action: 'view' },
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
     const { buttonIndex, fid } = data.untrustedData || {}
     
     let currentToken = null
-    let recommendations = null
+    let recommendations: FeedResponse | null = null
     
     // Handle different button actions
     switch (buttonIndex) {
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
       postUrl: `${hostUrl}/api/frame`,
       imageUrl: currentToken?.imageUrl || 'https://placehold.co/1200x630/png',
       token: currentToken,
-      recommendations: recommendations || undefined
+      recommendations
     })
     
     return new NextResponse(html, {
