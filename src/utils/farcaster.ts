@@ -71,7 +71,9 @@ export async function getUserProfile(fid: string) {
 // Get user's following list
 export async function getFarcasterFollowing(fid: string): Promise<FarcasterUser[]> {
   try {
-    const data = await warpcastRequest(`/fc/following?fid=${fid}`)
+    const response = await fetch(`/api/farcaster/following?fid=${fid}`)
+    if (!response.ok) throw new Error('Failed to fetch following')
+    const data = await response.json()
     return data.result?.users || []
   } catch (error) {
     logger.error('Error fetching Farcaster following:', error)
