@@ -155,21 +155,31 @@ export async function sendMessage({ message, userId, context = {} }: SendMessage
 
     // Get agent response
     const agent = await getAgent()
-    const response = await agent.invoke({
+    const { response } = await agent.invoke({
       message: validatedRequest.message,
       userId: validatedRequest.userId,
       context: validatedRequest.context
     })
     
     // Parse response
-    const content = response.content as string
+    const content = response.content
     const parsedResponse = {
+      id: crypto.randomUUID(),
       content,
-      hasContent: true,
-      recommendationsCount: (content.match(/\$[A-Z]+/g) || []).length,
-      actionsCount: (content.match(/\|/g) || []).length,
-      friendActivitiesCount: friendActivities.length,
-      referralsCount: referrals.length
+      role: 'assistant',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        tokenRecommendations: response.recommendations || [],
+        actions: response.actions || [],
+        friendActivities: friendActivities.map(activity => ({
+          timestamp: activity.timestamp || new Date().toISOString(),
+          userId: activity.userId || 'unknown',
+          username: activity.username || 'unknown',
+          action: (activity.action || 'share') as 'buy' | 'share' | 'sell',
+          tokenId: activity.tokenId
+        })),
+        referrals
+      }
     }
 
     logger.info('Final response:', parsedResponse)
