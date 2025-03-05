@@ -18,7 +18,7 @@ import { MemorySaver } from "@langchain/langgraph"
 import { createReactAgent } from "@langchain/langgraph/prebuilt"
 import { ChatOpenAI } from "@langchain/openai"
 import { AgentExecutor } from "@langchain/core/agents"
-import { agent } from '@/config/agentkit'
+import { agentInstance } from '@/config/agentkit'
 
 class AgentkitError extends Error {
   constructor(message: string, public status?: number, public code?: string) {
@@ -91,7 +91,7 @@ export async function sendMessage(request: z.infer<typeof agentRequestSchema>): 
     const message = new HumanMessage(validatedRequest.message)
 
     // Run the agent
-    const result = await agent.invoke({
+    const result = await agentInstance.invoke({
       messages: [message],
       context: validatedRequest.context
     })
