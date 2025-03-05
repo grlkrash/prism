@@ -1,9 +1,1 @@
-{
-  "/_not-found": "app/_not-found.js",
-  "/api/frame/route": "app/api/frame/route.js",
-  "/page": "app/page.js",
-  "/agent/page": "app/agent/page.js",
-  "/api/tokens/route": "app/api/tokens/route.js",
-  "/api/agent/route": "app/api/agent/route.js",
-  "/favicon.ico/route": "app/favicon.ico/route.js"
-}
+{}
