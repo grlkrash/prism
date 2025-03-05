@@ -1,14 +1,14 @@
 {
   "/_not-found": "app/_not-found.js",
-  "/agent/page": "app/agent/page.js",
   "/api/agent/route": "app/api/agent/route.js",
-  "/api/farcaster/following/route": "app/api/farcaster/following/route.js",
+  "/agent/page": "app/agent/page.js",
   "/api/auth/route": "app/api/auth/route.js",
-  "/api/frame/route": "app/api/frame/route.js",
+  "/api/farcaster/following/route": "app/api/farcaster/following/route.js",
   "/api/farcaster/keys/route": "app/api/farcaster/keys/route.js",
-  "/api/mbd/route": "app/api/mbd/route.js",
   "/api/farcaster/route": "app/api/farcaster/route.js",
+  "/api/frame/route": "app/api/frame/route.js",
+  "/api/mbd/route": "app/api/mbd/route.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
   "/page": "app/page.js",
-  "/api/tokens/route": "app/api/tokens/route.js",
-  "/favicon.ico/route": "app/favicon.ico/route.js"
+  "/api/tokens/route": "app/api/tokens/route.js"
 }

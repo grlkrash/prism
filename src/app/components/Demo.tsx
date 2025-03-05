@@ -339,6 +339,90 @@ export default function Demo() {
     if (activeTab === 'referrals') loadReferrals()
   }, [activeTab, loadFriendActivities, loadReferrals])
 
+  // Load initial tokens
+  useEffect(() => {
+    const loadInitialTokens = async () => {
+      try {
+        setIsLoading(true)
+        setError(null)
+        const response = await getTrendingFeed()
+        if (response?.casts) {
+          const newTokens = response.casts.map(cast => ({
+            id: cast.hash,
+            name: cast.text.split('\n')[0] || 'Untitled Token',
+            symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+            description: cast.text,
+            price: 0.001,
+            image: cast.author.pfp,
+            category: 'cultural',
+            social: {
+              website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+            },
+            metadata: {
+              authorFid: String(cast.author.fid),
+              authorUsername: cast.author.username,
+              timestamp: Number(cast.timestamp),
+              likes: cast.reactions.likes,
+              recasts: cast.reactions.recasts
+            }
+          }))
+          setTokens(newTokens)
+          setCursor(response.next?.cursor)
+          setHasMore(!!response.next?.cursor)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load tokens')
+        console.error('Error loading initial tokens:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    if (isSDKLoaded && context?.fid) {
+      loadInitialTokens()
+    }
+  }, [isSDKLoaded, context])
+
+  // Load more tokens
+  const loadMoreTokens = useCallback(async () => {
+    if (isLoading || !hasMore || !cursor) return
+    
+    try {
+      setIsLoading(true)
+      setError(null)
+      const response = await getTrendingFeed(cursor)
+      if (response?.casts) {
+        const newTokens = response.casts.map(cast => ({
+          id: cast.hash,
+          name: cast.text.split('\n')[0] || 'Untitled Token',
+          symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+          description: cast.text,
+          price: 0.001,
+          image: cast.author.pfp,
+          category: 'cultural',
+          social: {
+            website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+          },
+          metadata: {
+            authorFid: String(cast.author.fid),
+            authorUsername: cast.author.username,
+            timestamp: Number(cast.timestamp),
+            likes: cast.reactions.likes,
+            recasts: cast.reactions.recasts
+          }
+        }))
+        setTokens(prev => [...prev, ...newTokens])
+        setCursor(response.next?.cursor)
+        setHasMore(!!response.next?.cursor)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more tokens')
+      console.error('Error loading more tokens:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [cursor, hasMore, isLoading])
+
   if (!isSDKLoaded || isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -385,70 +469,12 @@ export default function Demo() {
         </TabsList>
 
         <TabsContent value="feed" className="space-y-4">
-          {/* Existing token feed */}
-          <div className="space-y-4">
-            {tokens.map((token: TokenItem) => (
-              <div 
-                key={token.id} 
-                className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-all hover:shadow-lg"
-              >
-                {/* Token Image */}
-                <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg mb-4 flex items-center justify-center">
-                  {token.image ? (
-                    <img 
-                      src={token.image} 
-                      alt={token.name}
-                      className="w-full h-full object-cover rounded-lg"
-                    />
-                  ) : (
-                    <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
-                  )}
-                </div>
-
-                {/* Token Info */}
-                <div className="space-y-2">
-                  <h2 className="font-bold text-lg">{token.name}</h2>
-                  <p className="text-sm text-gray-600 dark:text-gray-300">{token.description}</p>
-                  <p className="text-sm font-medium">
-                    1 ETH = {calculateTokenAmount('1', token.price)} {token.symbol}
-                  </p>
-                </div>
-
-                {/* Buy Input */}
-                <div className="mt-4 space-y-2">
-                  <input
-                    type="number"
-                    placeholder="ETH Amount"
-                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                    value={ethAmount}
-                    onChange={(e) => setEthAmount(e.target.value)}
-                    min="0"
-                    step="0.01"
-                  />
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    ≈ {calculateTokenAmount(ethAmount, token.price)} {token.symbol}
-                  </p>
-                </div>
-
-                {/* Actions */}
-                <div className="grid grid-cols-2 gap-2 mt-4">
-                  <Button 
-                    onClick={() => handleBuy(token)} 
-                    variant="default"
-                    disabled={isSendTxPending}
-                  >
-                    {isSendTxPending ? 'Buying...' : isConnected ? 'Buy' : 'Connect'}
-                  </Button>
-                  <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
-                </div>
-
-                {sendTxError && (
-                  <p className="text-red-500 text-sm mt-2">{sendTxError.message}</p>
-                )}
-              </div>
-            ))}
-            {/* ... existing loading and infinite scroll code ... */}
-          </div>
+          <TokenGallery 
+            tokens={tokens}
+            isLoading={isLoading}
+            hasMore={hasMore}
+            onLoadMore={loadMoreTokens}
+          />
         </TabsContent>
 
         <TabsContent value="curator">
@@ -459,7 +485,13 @@ export default function Demo() {
         </TabsContent>
 
         <TabsContent value="friends">
-          <TokenGallery userId={context?.fid?.toString()} />
+          <TokenGallery 
+            userId={context?.fid?.toString()}
+            tokens={tokens.filter(t => t.metadata?.authorFid === context?.fid?.toString())}
+            isLoading={isLoading}
+            hasMore={false}
+            onLoadMore={async () => {}}
+          />
         </TabsContent>
 
         <TabsContent value="chat">

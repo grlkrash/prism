@@ -2,6 +2,13 @@ import { NextRequest } from 'next/server'
 import { logger } from './logger'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
+const MBD_API_KEY = process.env.MBD_API_KEY
+const MBD_API_URL = process.env.NEXT_PUBLIC_MBD_AI_API_URL
+
+if (!MBD_API_KEY) {
+  logger.error('MBD API key not found')
+}
+
 export interface Token {
   id: string | number
   name: string
@@ -289,11 +296,11 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
 
     logger.debug('Making MBD AI request', { endpoint, data }, userId)
 
-    const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, {
+    const response = await fetch(`${MBD_API_URL}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MBD_AI_CONFIG.API_KEY}`
+        'Authorization': `Bearer ${MBD_API_KEY}`
       },
       body: JSON.stringify(data)
     })
@@ -338,12 +345,12 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
 
 export async function analyzeToken(token: Token): Promise<Token> {
   try {
-    if (!MBD_AI_CONFIG.API_KEY) {
+    if (!MBD_API_KEY) {
       // Return token as-is if no API key
       return token
     }
 
-    const response = await fetch(`${MBD_AI_CONFIG.API_URL}/analyze/token`, {
+    const response = await fetch(`${MBD_API_URL}/analyze/token`, {
       method: 'POST',
       headers: MBD_AI_CONFIG.getHeaders(),
       body: JSON.stringify(token)
@@ -405,7 +412,7 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
 
 export async function getPersonalizedFeed(fid: string | number): Promise<FeedResponse> {
   try {
-    if (!MBD_AI_CONFIG.API_KEY) {
+    if (!MBD_API_KEY) {
       // Use mock data in development if no API key
       if (process.env.NODE_ENV === 'development') {
         return {
@@ -429,7 +436,7 @@ export async function getPersonalizedFeed(fid: string | number): Promise<FeedRes
       throw new MbdApiError('Missing API key')
     }
 
-    const url = new URL(`${MBD_AI_CONFIG.WARPCAST_API_URL}${MBD_AI_CONFIG.ENDPOINTS.FEED_FOR_YOU}`)
+    const url = new URL(`${MBD_API_URL}${MBD_AI_CONFIG.ENDPOINTS.FEED_FOR_YOU}`)
     url.searchParams.append('fid', fid.toString())
 
     const response = await fetch(url.toString(), {
@@ -535,7 +542,7 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
 
 export async function getTrendingFeed(cursor?: string): Promise<FeedResponse> {
   try {
-    if (!MBD_AI_CONFIG.API_KEY) {
+    if (!MBD_API_KEY) {
       // Use mock data in development if no API key
       if (process.env.NODE_ENV === 'development') {
         return {
@@ -559,19 +566,14 @@ export async function getTrendingFeed(cursor?: string): Promise<FeedResponse> {
       throw new MbdApiError('Missing API key')
     }
 
-    const url = new URL(`${MBD_AI_CONFIG.WARPCAST_API_URL}${MBD_AI_CONFIG.ENDPOINTS.FEED_TRENDING}`)
-    if (cursor) url.searchParams.append('cursor', cursor)
+    const url = new URL(`${MBD_API_URL}/trending${cursor ? `?cursor=${cursor}` : ''}`)
 
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
-        ...MBD_AI_CONFIG.getHeaders(),
-        'Origin': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-        'Access-Control-Request-Method': 'GET',
-        'Access-Control-Request-Headers': 'Authorization, Content-Type'
-      },
-      credentials: 'include',
-      next: { revalidate: 60 } // Cache for 1 minute
+        'Authorization': `Bearer ${MBD_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
     })
 
     if (response.status === 403) {
@@ -612,8 +614,7 @@ export async function getTrendingFeed(cursor?: string): Promise<FeedResponse> {
     return transformedData
   } catch (error) {
     logger.error('Error fetching trending feed:', error)
-    // Return empty feed instead of throwing
-    return { casts: [] }
+    throw error
   }
 }
 

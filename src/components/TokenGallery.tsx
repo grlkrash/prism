@@ -3,110 +3,130 @@
 import React, { useState, useEffect } from 'react'
 import { Token } from '../utils/mbdAi'
 import { sendMessage } from '../utils/agentkit'
+import { useAccount, useSendTransaction } from 'wagmi'
+import { Button } from '@/components/ui/button'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import type { TokenItem } from '@/types/token'
+import { calculateTokenAmount } from '@/utils/token'
+import sdk from '@farcaster/frame-sdk'
 
 interface TokenGalleryProps {
   userId?: string
+  tokens: TokenItem[]
+  isLoading: boolean
+  hasMore: boolean
+  onLoadMore: () => Promise<void>
 }
 
-export function TokenGallery({ userId }: TokenGalleryProps) {
-  const [tokens, setTokens] = useState<Token[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export function TokenGallery({ userId, tokens, isLoading, hasMore, onLoadMore }: TokenGalleryProps) {
+  const { isConnected } = useAccount()
+  const { sendTransaction, error: sendTxError, isPending: isSendTxPending } = useSendTransaction()
+  const [ethAmount, setEthAmount] = React.useState('')
 
-  useEffect(() => {
-    async function loadTokens() {
-      try {
-        setIsLoading(true)
-        
-        // Get recommendations from agent
-        const response = await sendMessage({
-          message: 'Please recommend some trending cultural tokens based on Farcaster activity',
-          userId: userId || 'anonymous',
-          context: {
-            userPreferences: {
-              interests: ['art', 'music', 'culture']
-            }
-          }
-        })
-
-        if (response.metadata?.tokenRecommendations) {
-          setTokens(response.metadata.tokenRecommendations)
-        } else {
-          throw new Error('No recommendations found')
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load tokens')
-      } finally {
-        setIsLoading(false)
-      }
+  const handleBuy = async (token: TokenItem) => {
+    if (!token.social?.website) {
+      console.error('No contract address found for token')
+      return
     }
 
-    loadTokens()
-  }, [userId])
+    try {
+      const address = token.social.website.startsWith('0x') 
+        ? token.social.website as `0x${string}`
+        : `0x${token.social.website}` as `0x${string}`
 
-  if (isLoading) return <div>Loading...</div>
-  if (error) return <div>Error: {error}</div>
+      await sendTransaction({
+        to: address,
+        value: BigInt(parseFloat(ethAmount) * 1e18),
+      })
+    } catch (err) {
+      console.error('Transaction failed:', err)
+    }
+  }
+
+  const handleShare = async (token: TokenItem) => {
+    try {
+      await sdk.actions.openUrl(`https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol}) - ${token.description}`)
+    } catch (err) {
+      console.error('Share failed:', err)
+    }
+  }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+    <div className="space-y-4">
       {tokens.map((token) => (
-        <div key={token.id} className="border rounded-lg overflow-hidden shadow-lg">
-          <img
-            src={token.imageUrl || 'https://placehold.co/400x300/png'}
-            alt={token.name}
-            className="w-full h-48 object-cover"
-          />
-          <div className="p-4">
-            <div className="flex justify-between items-start mb-2">
-              <h3 className="text-xl font-bold">{token.name}</h3>
-              <span className="text-sm font-mono bg-gray-100 px-2 py-1 rounded">
-                ${token.symbol}
-              </span>
-            </div>
-            <p className="text-gray-600 mb-2">{token.description}</p>
-            <div className="flex justify-between items-center">
-              <p className="text-lg font-semibold">{token.price}</p>
-              <div className="text-sm text-gray-500">
-                Cultural Score: {token.culturalScore}
-              </div>
-            </div>
-            {token.social && (
-              <div className="mt-4 flex space-x-4">
-                {token.social.twitter && (
-                  <a
-                    href={`https://${token.social.twitter}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-600"
-                  >
-                    Twitter
-                  </a>
-                )}
-                {token.social.discord && (
-                  <a
-                    href={`https://${token.social.discord}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-indigo-400 hover:text-indigo-600"
-                  >
-                    Discord
-                  </a>
-                )}
-                {token.social.website && (
-                  <a
-                    href={`https://${token.social.website}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-green-400 hover:text-green-600"
-                  >
-                    Website
-                  </a>
-                )}
-              </div>
+        <div 
+          key={token.id} 
+          className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-all hover:shadow-lg"
+        >
+          {/* Token Image */}
+          <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg mb-4 flex items-center justify-center">
+            {token.image ? (
+              <img 
+                src={token.image} 
+                alt={token.name}
+                className="w-full h-full object-cover rounded-lg"
+              />
+            ) : (
+              <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
             )}
           </div>
+
+          {/* Token Info */}
+          <div className="space-y-2">
+            <h2 className="font-bold text-lg">{token.name}</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-300">{token.description}</p>
+            <p className="text-sm font-medium">
+              1 ETH = {calculateTokenAmount('1', token.price)} {token.symbol}
+            </p>
+          </div>
+
+          {/* Buy Input */}
+          <div className="mt-4 space-y-2">
+            <input
+              type="number"
+              placeholder="ETH Amount"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600"
+              value={ethAmount}
+              onChange={(e) => setEthAmount(e.target.value)}
+              min="0"
+              step="0.01"
+            />
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              ≈ {calculateTokenAmount(ethAmount, token.price)} {token.symbol}
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <Button 
+              onClick={() => handleBuy(token)} 
+              variant="default"
+              disabled={isSendTxPending}
+            >
+              {isSendTxPending ? 'Buying...' : isConnected ? 'Buy' : 'Connect'}
+            </Button>
+            <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
+          </div>
+
+          {sendTxError && (
+            <p className="text-red-500 text-sm mt-2">{sendTxError.message}</p>
+          )}
         </div>
       ))}
+
+      {isLoading && (
+        <div className="flex justify-center p-4">
+          <LoadingSpinner />
+        </div>
+      )}
+
+      {hasMore && !isLoading && (
+        <div className="flex justify-center p-4">
+          <Button onClick={onLoadMore} variant="outline">
+            Load More
+          </Button>
+        </div>
+      )}
     </div>
   )
 } 
