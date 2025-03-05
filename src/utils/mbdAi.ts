@@ -506,21 +506,36 @@ export async function getSimilarUsers(userId: string, cursor?: string) {
   }
 }
 
-export async function validateFrameRequest(req: NextRequest) {
+export interface FrameMessage {
+  button: number
+  fid?: string
+}
+
+export async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
     const body = await req.json()
-    const isValid = body && typeof body === 'object' && 'untrustedData' in body
+    const { untrustedData } = body
+
+    if (!untrustedData) {
+      return { isValid: false }
+    }
+
+    const { buttonIndex, fid } = untrustedData
+
+    if (!buttonIndex || buttonIndex < 1 || buttonIndex > 4) {
+      return { isValid: false }
+    }
+
     return {
-      isValid,
-      message: isValid ? {
-        button: body.untrustedData?.buttonIndex || 0,
-        inputText: body.untrustedData?.text || '',
-        fid: body.untrustedData?.fid
-      } : null
+      isValid: true,
+      message: {
+        button: buttonIndex,
+        fid: fid ? String(fid) : undefined
+      }
     }
   } catch (error) {
-    logger.error('Error validating frame request:', error)
-    return { isValid: false, message: null }
+    console.error('Error validating frame request:', error)
+    return { isValid: false }
   }
 }
 
