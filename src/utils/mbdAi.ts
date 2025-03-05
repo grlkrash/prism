@@ -496,36 +496,31 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
 }
 
 export async function getTrendingFeed(cursor?: string) {
-  console.log('[MBD AI] Making request to local API route')
-
+  console.log('[MBD AI] Fetching trending feed')
+  
   try {
-    // Ensure the endpoint is properly formatted
-    const endpoint = MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING
-    console.log('[MBD AI] Using endpoint:', endpoint)
-
     const params = new URLSearchParams({
-      endpoint: endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+      endpoint: MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING
     })
 
     if (cursor) {
-      params.set('cursor', cursor)
+      params.append('cursor', cursor)
       console.log('[MBD AI] Added cursor:', cursor)
     }
 
-    const requestUrl = `${API_URL}?${params.toString()}`
+    const requestUrl = `/api/mbd?${params.toString()}`
     console.log('[MBD AI] Making request to:', requestUrl)
 
     const response = await fetch(requestUrl)
 
     if (!response.ok) {
-      const errorText = await response.text()
+      const errorData = await response.json()
       console.error('[MBD AI] Error response:', {
         status: response.status,
         statusText: response.statusText,
-        url: requestUrl,
-        body: errorText
+        error: errorData
       })
-      throw new Error(`Failed to fetch trending feed: ${response.status} ${response.statusText} - ${errorText}`)
+      throw new Error(`Failed to fetch trending feed: ${response.status} - ${JSON.stringify(errorData)}`)
     }
 
     const result = await response.json()
@@ -540,16 +535,7 @@ export async function getTrendingFeed(cursor?: string) {
       hasNextCursor: !!result.data.next
     })
 
-    const data = result.data
-    
-    if (cursor) {
-      data.casts = data.casts.map((cast: Cast) => ({
-        ...cast,
-        hash: `${cast.hash}-${cursor}`
-      }))
-    }
-    
-    return data
+    return result.data
   } catch (error) {
     console.error('[MBD AI] Error in getTrendingFeed:', error)
     throw error

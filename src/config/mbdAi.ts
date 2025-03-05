@@ -17,10 +17,6 @@ export const MBD_AI_CONFIG = {
         console.error('[MBD AI] API key not found in environment variables')
         throw new Error('MBD API key not found')
       }
-      if (!apiKey.startsWith('mbd-')) {
-        console.error('[MBD AI] Invalid API key format')
-        throw new Error('Invalid MBD API key format')
-      }
       headers['Authorization'] = `Bearer ${apiKey}`
     }
     
@@ -41,16 +37,13 @@ export const MBD_AI_CONFIG = {
     FEED_TRENDING: '/v2/discover-actions',
     SEARCH_SEMANTIC: '/v2/search',
     LABELS_FOR_ITEMS: '/v2/labels',
-    USERS_SIMILAR: '/v2/users/similar',
-    CHANNEL_FOLLOWS: '/fc/channel-follows',
-    BLOCKED_USERS: '/fc/blocked-users',
-    ACCOUNT_VERIFICATIONS: '/fc/account-verifications'
+    USERS_SIMILAR: '/v2/users/similar'
   },
 
   // Rate Limiting
   RATE_LIMIT: {
     MAX_REQUESTS: 100,
-    WINDOW_MS: 60 * 1000, // 1 minute
+    WINDOW_MS: 60 * 1000
   },
 
   // Cultural Token Detection
@@ -104,42 +97,30 @@ export const MBD_AI_CONFIG = {
 
   // Enhanced logging function
   logConfig: () => {
-    console.log('=== MBD AI Configuration Debug ===')
-    console.log('1. Environment Check:')
-    console.log('- process.env exists:', !!process.env)
-    console.log('- MBD_API_KEY:', process.env.MBD_API_KEY?.substring(0, 8) + '...')
-    console.log('- MBD_AI_API_URL:', process.env.MBD_AI_API_URL)
-
-    console.log('\n2. Configuration Check:')
-    console.log('- API Key exists:', !!process.env.MBD_API_KEY)
-    console.log('- API Key format:', typeof process.env.MBD_API_KEY === 'string' && process.env.MBD_API_KEY.startsWith('mbd-'))
-    console.log('- API_URL:', MBD_AI_CONFIG.API_URL)
-    
-    console.log('\n3. Endpoint Check:')
-    console.log('- FEED_TRENDING:', MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING)
-    console.log('- Base URL + Endpoint:', new URL(MBD_AI_CONFIG.SERVER_ENDPOINTS.FEED_TRENDING, MBD_AI_CONFIG.API_URL).toString())
+    if (typeof window === 'undefined') {
+      // Server-side logging
+      console.log('=== MBD AI Server Configuration ===')
+      console.log('API Key exists:', !!process.env.MBD_API_KEY)
+      console.log('API URL:', process.env.MBD_AI_API_URL)
+    } else {
+      // Client-side logging
+      console.log('=== MBD AI Client Configuration ===')
+      console.log('Using proxy endpoints')
+      console.log('API URL (proxy):', '/api/mbd')
+    }
   }
-}
-
-// Validate configuration only on server side
-const validateConfig = () => {
-  if (typeof window !== 'undefined') {
-    return true // Skip validation on client side
-  }
-  
-  const apiKey = process.env.MBD_API_KEY
-  if (!apiKey?.startsWith('mbd-')) {
-    console.error('[MBD AI] Invalid API key format. Key should start with "mbd-"')
-    return false
-  }
-  return true
 }
 
 // Export validation function
-export const isConfigValid = validateConfig()
+export const isConfigValid = () => {
+  if (typeof window === 'undefined') {
+    return !!process.env.MBD_API_KEY && !!process.env.MBD_AI_API_URL
+  }
+  return true // Client-side is always valid since it uses proxy
+}
 
-// Validate configuration in development only
-if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'production') {
+// Log configuration in development
+if (process.env.NODE_ENV === 'development') {
   MBD_AI_CONFIG.logConfig()
 }
 
