@@ -2,34 +2,57 @@ import { useEffect, useState, useCallback } from 'react'
 import sdk from '@farcaster/frame-sdk'
 import { Button } from './ui/Button'
 
+interface TokenItem {
+  id: string
+  name: string
+  description: string
+  symbol: string
+  price: number // Price in ETH
+  image?: string
+}
+
 export default function Demo() {
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [context, setContext] = useState<any>(null)
-  const [currentIndex, setCurrentIndex] = useState(0)
+  const [ethAmount, setEthAmount] = useState<string>('')
+  const [selectedToken, setSelectedToken] = useState<TokenItem | null>(null)
 
-  // Mock data for demo
-  const items = [
-    { id: 1, title: 'Digital Dreams #1', description: 'A mesmerizing digital artwork' },
-    { id: 2, title: 'Digital Dreams #2', description: 'An ethereal digital creation' },
-    { id: 3, title: 'Digital Dreams #3', description: 'A stunning digital masterpiece' },
+  // Mock data for culture/art tokens
+  const tokens: TokenItem[] = [
+    {
+      id: '0x123',
+      name: 'Digital Culture DAO',
+      symbol: 'DCULT',
+      description: 'Community-driven cultural preservation token',
+      price: 0.001, // 1 ETH = 1000 DCULT
+      image: 'https://example.com/dcult.jpg'
+    },
+    {
+      id: '0x456',
+      name: 'Art Collective Token',
+      symbol: 'ARTCOL',
+      description: 'Empowering digital artists worldwide',
+      price: 0.002, // 1 ETH = 500 ARTCOL
+      image: 'https://example.com/artcol.jpg'
+    },
+    {
+      id: '0x789',
+      name: 'Creative Commons Fund',
+      symbol: 'CREATE',
+      description: 'Supporting open-source creativity',
+      price: 0.0005, // 1 ETH = 2000 CREATE
+      image: 'https://example.com/create.jpg'
+    }
   ]
 
   useEffect(() => {
     async function load() {
       try {
-        if (!sdk) {
-          throw new Error('SDK not loaded')
-        }
-
-        // Wait for SDK to be ready
+        if (!sdk) throw new Error('SDK not loaded')
         await new Promise(resolve => setTimeout(resolve, 100))
-        
-        // Get context first
         const ctx = await sdk.context
         setContext(ctx)
-        
-        // Then signal ready
         if (sdk.actions) {
           await sdk.actions.ready()
           setIsSDKLoaded(true)
@@ -44,25 +67,24 @@ export default function Demo() {
     load()
   }, [])
 
-  const handleNext = useCallback(() => {
-    setCurrentIndex((prev) => (prev + 1) % items.length)
-  }, [items.length])
+  const calculateTokenAmount = (ethAmt: string, tokenPrice: number) => {
+    const eth = parseFloat(ethAmt)
+    if (isNaN(eth)) return '0'
+    return (eth / tokenPrice).toFixed(2)
+  }
 
-  const handlePrevious = useCallback(() => {
-    setCurrentIndex((prev) => (prev - 1 + items.length) % items.length)
-  }, [items.length])
-
-  const handleCollect = useCallback(() => {
+  const handleBuy = useCallback((token: TokenItem) => {
     if (sdk.actions) {
-      sdk.actions.openUrl(`https://base.org/collect/${items[currentIndex].id}`)
+      // In real implementation, this would connect to Base for the transaction
+      sdk.actions.openUrl(`https://base.org/swap?token=${token.id}&amount=${ethAmount}`)
     }
-  }, [currentIndex, items])
+  }, [ethAmount])
 
-  const handleShare = useCallback(() => {
+  const handleShare = useCallback((token: TokenItem) => {
     if (sdk.actions) {
-      sdk.actions.openUrl(`https://warpcast.com/~/compose?text=Check out ${items[currentIndex].title}!`)
+      sdk.actions.openUrl(`https://warpcast.com/~/compose?text=Check out ${token.symbol}! A great culture token: ${token.description}`)
     }
-  }, [currentIndex, items])
+  }, [])
 
   if (error) return (
     <div className="w-[300px] mx-auto py-4 px-2">
@@ -76,30 +98,46 @@ export default function Demo() {
     </div>
   )
 
-  const currentItem = items[currentIndex]
-
   return (
     <div className="w-[300px] mx-auto py-4 px-2">
-      <h1 className="text-2xl font-bold text-center mb-4">{currentItem.title}</h1>
+      <h1 className="text-2xl font-bold text-center mb-4">Culture Tokens</h1>
       
-      {/* Image Placeholder */}
-      <div className="aspect-video bg-gray-200 rounded-lg mb-4 flex items-center justify-center">
-        <span className="text-gray-500">Image {currentIndex + 1}</span>
-      </div>
+      <div className="space-y-6">
+        {tokens.map(token => (
+          <div key={token.id} className="bg-white rounded-lg shadow p-4">
+            {/* Token Image */}
+            <div className="aspect-video bg-gray-200 rounded-lg mb-4 flex items-center justify-center">
+              <span className="text-gray-500">{token.symbol}</span>
+            </div>
 
-      {/* Description */}
-      <p className="text-gray-600 mb-6">{currentItem.description}</p>
+            {/* Token Info */}
+            <h2 className="font-bold mb-1">{token.name}</h2>
+            <p className="text-sm text-gray-600 mb-2">{token.description}</p>
+            <p className="text-sm font-medium mb-4">1 ETH = {(1/token.price).toFixed(0)} {token.symbol}</p>
 
-      {/* Navigation */}
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        <Button onClick={handlePrevious} variant="secondary">Previous</Button>
-        <Button onClick={handleNext}>Next</Button>
-      </div>
+            {/* Buy Input */}
+            <div className="space-y-2 mb-4">
+              <input
+                type="number"
+                placeholder="ETH Amount"
+                className="w-full px-3 py-2 border rounded-lg"
+                value={ethAmount}
+                onChange={(e) => setEthAmount(e.target.value)}
+                min="0"
+                step="0.01"
+              />
+              <p className="text-sm text-gray-600">
+                ≈ {calculateTokenAmount(ethAmount, token.price)} {token.symbol}
+              </p>
+            </div>
 
-      {/* Actions */}
-      <div className="space-y-2">
-        <Button onClick={handleCollect} variant="primary">Collect</Button>
-        <Button onClick={handleShare} variant="secondary">Share</Button>
+            {/* Actions */}
+            <div className="grid grid-cols-2 gap-2">
+              <Button onClick={() => handleBuy(token)} variant="primary">Buy</Button>
+              <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Debug: Context */}
