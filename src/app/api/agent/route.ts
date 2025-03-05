@@ -1,48 +1,47 @@
 // app/api/agent/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { sendMessage } from '@/utils/agentkit';
-import { agentRequestSchema, agentResponseSchema } from '@/config/agentkit';
-import { logger } from '@/utils/logger';
-import { ZodError } from 'zod';
-import { z } from 'zod';
+import { OpenAI } from 'openai';
+import { AGENTKIT_CONFIG } from '@/config/agentkit';
+import { extractTokenRecommendations, extractActions } from '@/utils/agentkit';
 
-const requestSchema = z.object({
-  message: z.string(),
-  userId: z.string().optional(),
-  context: z.record(z.any()).optional()
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
 });
 
-// Implement the agent handler
 export async function POST(req: NextRequest) {
   try {
-    // Parse and validate request
-    const body = await req.json();
-    const validatedRequest = requestSchema.parse(body);
+    const { message, userId, context } = await req.json();
+    const threadId = `grlkrash-agent-${crypto.randomUUID()}`;
 
-    // Send message to agent
-    const response = await sendMessage(validatedRequest);
+    // Call OpenAI API
+    const completion = await openai.chat.completions.create({
+      model: AGENTKIT_CONFIG.MODEL,
+      temperature: AGENTKIT_CONFIG.TEMPERATURE,
+      max_tokens: AGENTKIT_CONFIG.MAX_TOKENS,
+      messages: [
+        { role: 'system', content: AGENTKIT_CONFIG.SYSTEM_PROMPT },
+        { role: 'user', content: message }
+      ]
+    });
 
-    // Return formatted response
-    return NextResponse.json(response);
-  } catch (error) {
-    logger.error('Error in agent route:', error);
+    const content = completion.choices[0]?.message?.content || '';
     
-    // Handle specific error types
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Invalid request format', details: error.errors },
-        { status: 400 }
-      );
-    }
+    // Extract recommendations and actions
+    const tokenRecommendations = extractTokenRecommendations(content);
+    const actions = extractActions(content);
 
-    if (error instanceof Error) {
-      const status = (error as any).status || 500;
-      return NextResponse.json(
-        { error: error.message || 'Internal server error' },
-        { status }
-      );
-    }
-
+    return NextResponse.json({
+      id: threadId,
+      content,
+      role: 'assistant',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        tokenRecommendations,
+        actions
+      }
+    });
+  } catch (error) {
+    console.error('Error in agent route:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

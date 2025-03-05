@@ -1,22 +1,5 @@
 import { z } from 'zod'
-import {
-  AgentKit,
-  CdpWalletProvider,
-  wethActionProvider,
-  walletActionProvider,
-  erc20ActionProvider,
-  cdpApiActionProvider,
-  cdpWalletActionProvider,
-  pythActionProvider,
-} from "@coinbase/agentkit"
 import { AGENTKIT_CONFIG, AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema } from '@/config/agentkit'
-import { logger } from './logger'
-import { analyzeToken } from './mbdAi'
-import { getLangChainTools } from "@coinbase/agentkit-langchain"
-import { HumanMessage } from "@langchain/core/messages"
-import { MemorySaver } from "@langchain/langgraph"
-import { ChatOpenAI } from "@langchain/openai"
-import { createReactAgent } from "@langchain/langgraph/prebuilt"
 
 class AgentkitError extends Error {
   constructor(message: string, public status?: number, public code?: string) {
@@ -55,93 +38,8 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
-// Initialize LangChain tools
-let agentInstance: any = null
-const memory = new MemorySaver()
-
-async function initializeAgent() {
-  try {
-    // Initialize LLM
-    const llm = new ChatOpenAI({
-      modelName: AGENTKIT_CONFIG.MODEL,
-      temperature: AGENTKIT_CONFIG.TEMPERATURE,
-      maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
-    })
-
-    // Configure CDP Wallet Provider
-    const config = {
-      apiKeyName: process.env.CDP_API_KEY_NAME,
-      apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-      networkId: process.env.NETWORK_ID || "base-sepolia",
-    }
-
-    const walletProvider = await CdpWalletProvider.configureWithWallet(config)
-
-    // Initialize AgentKit with all action providers
-    const agentkit = await AgentKit.from({
-      walletProvider,
-      actionProviders: [
-        wethActionProvider(),
-        pythActionProvider(),
-        walletActionProvider(),
-        erc20ActionProvider(),
-        cdpApiActionProvider(config),
-        cdpWalletActionProvider(config),
-      ],
-    })
-
-    const tools = await getLangChainTools(agentkit)
-
-    // Create a custom agent executor
-    const executor = {
-      invoke: async (input: { messages: any[], configurable?: any }) => {
-        const threadId = input.configurable?.thread_id || `grlkrash-agent-${crypto.randomUUID()}`
-        
-        try {
-          // Format the input message
-          const lastMessage = input.messages[input.messages.length - 1]
-          const prompt = `${AGENTKIT_CONFIG.SYSTEM_PROMPT}\n\nHuman: ${lastMessage.content}\n\nAssistant:`
-
-          // Call LLM with tools
-          const response = await llm.invoke(prompt, {
-            tools,
-            configurable: { thread_id: threadId }
-          })
-
-          // Format the response
-          const content = typeof response.content === 'object'
-            ? JSON.stringify(response.content)
-            : String(response.content || '')
-
-          return {
-            messages: [{ content, role: 'assistant' }],
-            configurable: { thread_id: threadId }
-          }
-        } catch (error) {
-          logger.error('Error in agent execution:', error)
-          throw error
-        }
-      }
-    }
-
-    return executor
-  } catch (error) {
-    logger.error('Failed to initialize agent:', error)
-    throw error
-  }
-}
-
-export async function getAgent() {
-  if (!agentInstance) {
-    agentInstance = await initializeAgent()
-  }
-  return agentInstance
-}
-
 export async function sendMessage(request: unknown): Promise<AgentResponse> {
   try {
-    logger.debug('Starting sendMessage with request:', request)
-
     // Validate request
     const { message, userId, context } = z.object({
       message: z.string(),
@@ -149,59 +47,28 @@ export async function sendMessage(request: unknown): Promise<AgentResponse> {
       context: z.record(z.any()).optional()
     }).parse(request)
 
-    logger.debug('Request validated successfully')
-
     // Check rate limit
     if (userId && !checkRateLimit(userId)) {
-      logger.warn('Rate limit exceeded for user:', userId)
       throw new RateLimitError('Rate limit exceeded')
     }
 
-    // Get agent instance
-    logger.debug('Getting agent instance')
-    const agent = await getAgent()
-    const threadId = `grlkrash-agent-${crypto.randomUUID()}`
-    
-    logger.debug('Calling agent with message:', { message, threadId })
-    
-    // Call agent with message and thread ID
-    const result = await agent.invoke({
-      messages: [new HumanMessage(message)],
-      configurable: { thread_id: threadId }
+    // Call OpenAI API directly
+    const response = await fetch('/api/agent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message, userId, context })
     })
 
-    logger.debug('Agent response received:', result)
-
-    // Extract content and ensure it's a string
-    const content = typeof result.messages[0].content === 'object'
-      ? JSON.stringify(result.messages[0].content)
-      : String(result.messages[0].content)
-
-    logger.debug('Content extracted:', content)
-
-    // Extract recommendations and actions
-    const tokenRecommendations = extractTokenRecommendations(content)
-    const actions = extractActions(content)
-
-    logger.debug('Extracted data:', { tokenRecommendations, actions })
-
-    // Construct and validate response
-    const response: AgentResponse = {
-      id: threadId,
-      content,
-      role: 'assistant',
-      timestamp: new Date().toISOString(),
-      metadata: {
-        tokenRecommendations,
-        actions
-      }
+    if (!response.ok) {
+      throw new Error('Failed to get response from agent')
     }
 
-    logger.debug('Validating response')
-    return agentResponseSchema.parse(response)
+    const result = await response.json()
+    return agentResponseSchema.parse(result)
 
   } catch (error) {
-    logger.error('Error in sendMessage:', error)
     if (error instanceof z.ZodError) {
       throw new AgentkitError('Invalid request format', 400)
     }
@@ -250,72 +117,63 @@ function extractTokenRecommendations(content: unknown): TokenRecommendation[] {
           tokenType: 'ERC20'
         }))
       }
-    } catch (e) {
-      // Not JSON, continue with text parsing
-    }
+    } catch {}
     
-    // Extract recommendations section using regex
+    // Try extracting from text format
     const recommendationsMatch = contentStr.match(/Token Recommendations:([\s\S]*?)(?=Actions:|$)/)
     if (!recommendationsMatch) return []
     
-    const recommendationsText = recommendationsMatch[1].trim()
-    const recommendations = recommendationsText.split('\n')
+    const recommendations = recommendationsMatch[1]
+      .trim()
+      .split('\n')
       .filter(line => line.trim())
       .map(line => {
-        // Match numbered items like "1. TokenName ($SYMBOL): Description"
-        const match = line.match(/^\d+\.\s*([^(]+)\s*\((\$[A-Z]+)\):\s*(.+)/)
+        const match = line.match(/\d+\.\s+([^($]+)\s+\((\$[^)]+)\):\s+(.+)/)
         if (!match) return null
         
+        const [_, name, symbol, description] = match
         return {
           id: crypto.randomUUID(),
-          name: match[1].trim(),
-          symbol: match[2].replace('$', ''),
-          description: match[3].trim(),
-          imageUrl: '', // Will be populated by MBD AI later
+          name: name.trim(),
+          symbol: symbol.replace('$', '').trim(),
+          description: description.trim(),
+          imageUrl: '',
           price: '0',
           culturalScore: Math.floor(Math.random() * 100),
           tokenType: 'ERC20' as const
         }
       })
       .filter((rec): rec is TokenRecommendation => rec !== null)
-
+    
     return recommendations
   } catch (error) {
-    logger.error('Error extracting recommendations:', error)
+    console.error('Error extracting recommendations:', error)
     return []
   }
 }
 
-function extractActions(content: string) {
+function extractActions(content: unknown): { type: string, tokenId: string, label: string }[] {
   try {
     if (!content) return []
     
-    const actionsMatch = content.match(/Actions:([\s\S]*?)$/)
+    const contentStr = typeof content === 'object' 
+      ? JSON.stringify(content)
+      : String(content)
+    
+    const actionsMatch = contentStr.match(/Actions:([\s\S]*?)$/)
     if (!actionsMatch) return []
     
-    const actionsText = actionsMatch[1].trim()
-    const validActionTypes = ['view', 'buy', 'share', 'analyze', 'farcaster'] as const
-    type ActionType = typeof validActionTypes[number]
-
-    return actionsText.split('\n')
+    return actionsMatch[1]
+      .trim()
+      .split('\n')
       .filter(line => line.trim())
       .map(line => {
-        const [type, tokenId, label] = line.trim().split('|')
-        // Validate action type
-        if (!type || !tokenId || !label || !validActionTypes.includes(type as ActionType)) {
-          return null
-        }
-        return { 
-          type: type as ActionType, 
-          tokenId, 
-          label 
-        }
+        const [type, tokenId, label] = line.split('|')
+        return { type, tokenId, label }
       })
-      .filter((action): action is { type: ActionType; tokenId: string; label: string } => 
-        action !== null
-      )
+      .filter(action => action.type && action.tokenId && action.label)
   } catch (error) {
-    logger.error('Error extracting actions:', error)
+    console.error('Error extracting actions:', error)
     return []
   }
 }
