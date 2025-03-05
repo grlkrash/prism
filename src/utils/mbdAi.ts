@@ -599,9 +599,20 @@ export interface FrameMessage {
 export async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
     const body = await req.json()
-    const { buttonIndex, fid } = body
+    
+    // In development, allow all requests
+    if (process.env.NODE_ENV === 'development') {
+      return {
+        isValid: true,
+        message: {
+          button: body.buttonIndex || 1,
+          fid: body.fid
+        }
+      }
+    }
 
     // Validate button index
+    const buttonIndex = body.buttonIndex
     if (!buttonIndex || buttonIndex < 1 || buttonIndex > 4) {
       return { isValid: false }
     }
@@ -610,11 +621,11 @@ export async function validateFrameRequest(req: NextRequest): Promise<{ isValid:
       isValid: true,
       message: {
         button: buttonIndex,
-        fid: fid ? String(fid) : undefined
+        fid: body.fid
       }
     }
   } catch (error) {
-    console.error('Error validating frame request:', error)
+    logger.error('Frame validation error:', error)
     return { isValid: false }
   }
 }
