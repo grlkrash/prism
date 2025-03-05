@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { analyzeToken, getPersonalizedFeed } from '@/utils/mbdAi'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
 import { validateFrameRequest } from '@/utils/mbdAi'
+import { randomUUID } from 'crypto'
 
 function generateFrameHtml({
-  imageUrl,
+  imageUrl = 'https://placehold.co/1200x630/png',
   postUrl,
   token,
   recommendations,
@@ -12,7 +13,7 @@ function generateFrameHtml({
   referrals,
   errorMessage
 }: {
-  imageUrl: string
+  imageUrl?: string
   postUrl: string
   token?: any
   recommendations?: any
@@ -35,14 +36,14 @@ function generateFrameHtml({
   const description = errorMessage 
     ? errorMessage
     : token 
-      ? `${token.description}\n\nCultural Score: ${token.culturalScore}/100` 
+      ? `${token.description || 'No description available'}\n\nCultural Score: ${token.culturalScore || 0}/100` 
       : friendActivities?.length 
         ? `Your friends' recent activity:\n${friendActivities.map(activity => 
-            `${activity.username} ${activity.action}ed ${activity.tokenId}`
+            `${activity.username || 'Someone'} ${activity.action || 'interacted with'}ed ${activity.tokenId || 'a token'}`
           ).join('\n')}`
         : referrals?.length
           ? `Your referral rewards:\n${referrals.map(ref => 
-              `Earned ${ref.reward} points for referring ${ref.referredId}`
+              `Earned ${ref.reward || '0'} points for referring ${ref.referredId || 'someone'}`
             ).join('\n')}`
           : 'Discover and collect cultural tokens'
 
@@ -55,7 +56,7 @@ function generateFrameHtml({
     ${buttons.map((btn, i) => `
     <meta property="fc:frame:button:${i + 1}" content="${btn.label}" />
     `).join('')}
-    <meta property="og:title" content="${token ? `${token.name} ($${token.symbol})` : 'Prism: Cultural Tokens'}" />
+    <meta property="og:title" content="${token ? `${token.name || 'Unknown Token'} (${token.symbol || 'N/A'})` : 'Prism: Cultural Tokens'}" />
     <meta property="og:image" content="${imageUrl}" />
     <meta property="og:description" content="${description}" />
   </head>
@@ -70,17 +71,16 @@ export async function GET(req: NextRequest) {
     // Get initial trending cultural tokens
     const response = await sendMessage({
       message: 'Please analyze trending art and cultural tokens on Farcaster',
-      userId: 'anonymous', // Use anonymous instead of initial-view
-      threadId: `grlkrash-frame-${crypto.randomUUID()}`
+      userId: 'anonymous',
+      threadId: `grlkrash-frame-${randomUUID()}`
     })
 
     const token = response.metadata?.tokenRecommendations?.[0]
     
     const html = generateFrameHtml({
       postUrl: `${hostUrl}/api/frame`,
-      imageUrl: token?.imageUrl || 'https://placehold.co/1200x630/png',
+      imageUrl: token?.imageUrl,
       token,
-      errorMessage: undefined // Fix type error
     })
     
     return new NextResponse(html, {
@@ -91,7 +91,12 @@ export async function GET(req: NextRequest) {
     })
   } catch (error) {
     console.error('Error in GET:', error)
-    return new NextResponse('Error', { status: 500 })
+    return new NextResponse(generateFrameHtml({
+      postUrl: req.url,
+      errorMessage: 'Something went wrong. Please try again later.'
+    }), {
+      headers: { 'Content-Type': 'text/html' }
+    })
   }
 }
 
@@ -114,7 +119,7 @@ export async function POST(req: NextRequest) {
         ? 'Please recommend personalized art and cultural tokens based on user preferences'
         : 'Please analyze trending art and cultural tokens on Farcaster',
       userId: fid ? String(fid) : 'anonymous',
-      threadId: `grlkrash-frame-${crypto.randomUUID()}`,
+      threadId: `grlkrash-frame-${randomUUID()}`,
       context: fid ? {
         farcasterContext: { userFid: String(fid) }
       } : undefined
@@ -122,9 +127,9 @@ export async function POST(req: NextRequest) {
 
     let currentToken = response.metadata?.tokenRecommendations?.[0]
     let recommendations = null
-    let friendActivities = null
-    let referrals = null
-    let errorMessage: string | undefined = undefined // Fix type error
+    let friendActivities: any[] | undefined = undefined
+    let referrals: any[] | undefined = undefined
+    let errorMessage: string | undefined
     
     // Handle different button actions
     switch (button) {
@@ -140,14 +145,16 @@ export async function POST(req: NextRequest) {
         break
       case 3: // Share/Friend Activity
         if (fid) {
-          friendActivities = await getFriendActivities(fid)
+          const activities = await getFriendActivities(fid)
+          friendActivities = activities || undefined
         } else {
           errorMessage = '🔒 Sign in with Farcaster to see friend activity'
         }
         break
       case 4: // Next/My Referrals
         if (fid) {
-          referrals = await getReferrals(fid)
+          const userReferrals = await getReferrals(fid)
+          referrals = userReferrals || undefined
         } else {
           errorMessage = '🔒 Sign in with Farcaster to view your referrals'
         }
@@ -158,7 +165,7 @@ export async function POST(req: NextRequest) {
     if (currentToken) {
       const tokenWithStringId = {
         ...currentToken,
-        id: String(currentToken.id),
+        id: String(currentToken.id || '0'),
         artistName: currentToken.artistName || 'Unknown Artist',
         culturalScore: currentToken.culturalScore || 0,
         tokenType: 'ERC20' as const
@@ -171,8 +178,8 @@ export async function POST(req: NextRequest) {
       postUrl: `${hostUrl}/api/frame`,
       token: currentToken,
       recommendations,
-      friendActivities: friendActivities || undefined,
-      referrals: referrals || undefined,
+      friendActivities,
+      referrals,
       errorMessage
     })
     
@@ -183,6 +190,11 @@ export async function POST(req: NextRequest) {
     })
   } catch (error) {
     console.error('Error in frame route:', error)
-    return new NextResponse('Internal Server Error', { status: 500 })
+    return new NextResponse(generateFrameHtml({
+      postUrl: req.url,
+      errorMessage: 'Something went wrong. Please try again later.'
+    }), {
+      headers: { 'Content-Type': 'text/html' }
+    })
   }
 } 

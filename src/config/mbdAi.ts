@@ -62,10 +62,22 @@ export const MBD_AI_CONFIG = {
   }
 }
 
-// Validate configuration
-if (!MBD_AI_CONFIG.API_KEY) {
-  console.warn('Warning: MBD AI API key not found in environment variables')
-  console.warn('MBD_API_KEY must be set')
+// Debug logging
+console.log('=== MBD AI Configuration Debug ===')
+console.log('1. Environment Check:')
+console.log('- process.env exists:', !!process.env)
+console.log('- Available MBD keys:', Object.keys(process.env).filter(k => k.includes('MBD')))
+console.log('\n2. Configuration Check:')
+console.log('- API_KEY exists:', !!MBD_AI_CONFIG.API_KEY)
+console.log('- API_KEY format:', MBD_AI_CONFIG.API_KEY?.startsWith('mbd-'))
+console.log('- API_URL:', MBD_AI_CONFIG.API_URL)
+
+// Validate configuration in development only
+if (process.env.NODE_ENV === 'development' && !MBD_AI_CONFIG.API_KEY) {
+  console.warn('\n❌ Configuration Error:')
+  console.warn('- MBD AI API key not found in environment variables')
+  console.warn('- MBD_API_KEY must be set')
+  console.warn('- Check .env.local file and environment loading')
   throw new Error('Missing MBD AI API key configuration')
 }
 
@@ -84,7 +96,7 @@ export async function checkApiStatus() {
 }
 
 // Add test mode flag
-export const isTestMode = MBD_AI_CONFIG.API_KEY === 'test-key-for-development'
+export const isTestMode = process.env.NODE_ENV === 'test' || MBD_AI_CONFIG.API_KEY === 'test-key-for-development'
 
 // Helper function to get mock data for test mode
 export function getMockData() {
