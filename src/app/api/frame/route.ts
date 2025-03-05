@@ -191,44 +191,36 @@ interface FrameMessage {
 
 async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
-    // In development, allow all requests with test data
-    if (process.env.NODE_ENV === 'development') {
-      const body = await req.json()
-      return {
-        isValid: true,
-        message: {
-          button: body.buttonIndex || 1,
-          fid: 'test-user-123'
-        }
-      }
-    }
-
-    // In production, validate the frame request
     const body = await req.json()
     
-    // Basic validation of required fields
+    // Basic frame message validation
     if (!body || !body.untrustedData) {
-      logger.error('Invalid frame request: Missing required fields')
       return { isValid: false }
     }
 
     const { untrustedData } = body
     
-    // Validate required frame data
-    if (!untrustedData.buttonIndex || !untrustedData.fid) {
-      logger.error('Invalid frame request: Missing buttonIndex or fid')
+    // Validate required fields
+    if (!untrustedData.fid || !untrustedData.messageHash) {
       return { isValid: false }
     }
 
-    return {
-      isValid: true,
-      message: {
-        button: untrustedData.buttonIndex,
-        fid: untrustedData.fid
+    // In development, always return valid
+    if (process.env.NODE_ENV === 'development') {
+      return { 
+        isValid: true,
+        message: body
       }
     }
+
+    // In production, do additional validation if needed
+    // For now, we'll just do basic validation
+    return {
+      isValid: true,
+      message: body
+    }
   } catch (error) {
-    logger.error('Frame validation error:', error)
+    console.error('[ERROR] Frame validation error:', error)
     return { isValid: false }
   }
 } 

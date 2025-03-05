@@ -27,11 +27,13 @@ export class FarcasterError extends Error {
 
 export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
   const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com/v2'
-  const apiUrl = new URL(baseUrl)
-  const fullUrl = new URL(endpoint.startsWith('/') ? endpoint.slice(1) : endpoint, apiUrl.origin)
   
   try {
-    const response = await fetch(fullUrl.toString(), {
+    // Ensure endpoint starts with /
+    const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+    const url = new URL(normalizedEndpoint, baseUrl)
+    
+    const response = await fetch(url.toString(), {
       ...options,
       headers: {
         ...options.headers,
@@ -44,7 +46,7 @@ export async function farcasterRequest(endpoint: string, options: RequestInit = 
     return response.json()
   } catch (error) {
     if (error instanceof TypeError && error.message.includes('Invalid URL')) {
-      throw new FarcasterError(`Invalid API URL: ${fullUrl}`)
+      throw new FarcasterError(`Invalid API URL: ${baseUrl}${endpoint}`)
     }
     throw error
   }
