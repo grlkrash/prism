@@ -1,5 +1,5 @@
 import { getFrameMessage, FrameRequest, FrameValidationData } from '@farcaster/frames-sdk'
-import { createClient } from '@farcaster/hub-web'
+import { Client } from '@farcaster/hub-web'
 import { logger } from './logger'
 
 class FarcasterError extends Error {
@@ -10,9 +10,9 @@ class FarcasterError extends Error {
 }
 
 // Initialize Farcaster client
-const farcasterClient = createClient({
-  apiKey: process.env.NEXT_PUBLIC_FARCASTER_API_KEY || '',
-  baseUrl: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.farcaster.xyz',
+const farcasterClient = new Client({
+  hubUrl: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.farcaster.xyz',
+  token: process.env.NEXT_PUBLIC_FARCASTER_API_KEY || ''
 })
 
 export async function searchCasts(query: string, limit: number = 10) {

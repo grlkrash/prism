@@ -4,6 +4,7 @@ import { sendMessage, getTokenRecommendations, analyzeTokenWithAgent } from '@/u
 import { agentRequestSchema } from '@/config/agentkit';
 import { logger } from '@/utils/logger';
 import { ZodError } from 'zod';
+import { searchCasts, analyzeToken } from '@/utils/mbdAi';
 
 // This is a simplified implementation - in a real app, you would connect to the actual MBD AI API
 const mbdAnalyzeTokens = async (query: string) => {
@@ -43,48 +44,44 @@ const mbdAnalyzeTokens = async (query: string) => {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const validatedRequest = agentRequestSchema.parse(body);
-
-    let response;
-    switch (validatedRequest.message.toLowerCase()) {
-      case 'recommend tokens':
-        // Ensure priceRange has both min and max values
-        const userPreferences = validatedRequest.context?.userPreferences;
-        if (userPreferences?.priceRange) {
-          userPreferences.priceRange = {
-            min: userPreferences.priceRange.min || 0,
-            max: userPreferences.priceRange.max || 1000
-          };
-        }
+    const validatedData = agentRequestSchema.parse(body);
+    
+    // Get token recommendations based on user query
+    const searchResults = await searchCasts(validatedData.message);
+    const analyzedTokens = await Promise.all(
+      searchResults.casts.map(async (cast) => {
+        // Extract token info from cast
+        const token = {
+          id: cast.hash,
+          name: cast.text.substring(0, 50), // Use first 50 chars as name
+          description: cast.text,
+          imageUrl: cast.author.pfp || 'https://placehold.co/400',
+          artistName: cast.author.displayName || cast.author.username,
+          price: '0.1 ETH' // This would come from your token marketplace
+        };
         
-        response = await getTokenRecommendations(
-          validatedRequest.userId || 'anonymous',
-          userPreferences
-        );
-        break;
-      case 'analyze token':
-        if (!validatedRequest.context?.currentToken?.id) {
-          return NextResponse.json(
-            { error: 'Token ID is required for analysis' },
-            { status: 400 }
-          );
-        }
-        response = await analyzeTokenWithAgent(
-          validatedRequest.context.currentToken.id,
-          validatedRequest.userId || 'anonymous'
-        );
-        break;
-      default:
-        response = await sendMessage(validatedRequest);
-    }
-
+        // Analyze token with MBD AI
+        return await analyzeToken(token, validatedData.userId);
+      })
+    );
+    
+    // Process with agent
+    const response = await sendMessage({
+      message: validatedData.message,
+      userId: validatedData.userId,
+      context: {
+        ...validatedData.context,
+        mbdAnalysis: analyzedTokens
+      }
+    });
+    
     return NextResponse.json(response);
   } catch (error) {
-    logger.error('Error in agent API route:', error);
+    logger.error('Error in agent route:', error);
     
     if (error instanceof ZodError) {
       return NextResponse.json(
-        { error: 'Invalid request parameters' },
+        { error: 'Invalid request format', details: error.errors },
         { status: 400 }
       );
     }
