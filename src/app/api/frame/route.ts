@@ -122,8 +122,8 @@ export async function POST(req: NextRequest) {
     if (!isValid) {
       return new Response(
         generateFrameHtml({
-          postUrl: req.url,
-          imageUrl: `${process.env.NEXT_PUBLIC_HOST_URL}/error.png`,
+          postUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/frame`,
+          imageUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/error.png`,
           errorMessage: 'Invalid frame request'
         }),
         { headers: { 'Content-Type': 'text/html' } }
@@ -132,8 +132,6 @@ export async function POST(req: NextRequest) {
 
     const fid = message?.fid
     const buttonIndex = message?.button || 1
-    const url = new URL(req.url)
-    const hostUrl = `${url.protocol}//${url.host}`
 
     // Get recommendations based on user context
     const response = await sendMessage({
@@ -154,8 +152,8 @@ export async function POST(req: NextRequest) {
     if (!currentToken) {
       return new Response(
         generateFrameHtml({
-          postUrl: req.url,
-          imageUrl: `${hostUrl}/placeholder.png`,
+          postUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/frame`,
+          imageUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/placeholder.png`,
           errorMessage: 'No recommendations available. Try again!'
         }),
         { headers: { 'Content-Type': 'text/html' } }
@@ -165,8 +163,8 @@ export async function POST(req: NextRequest) {
     // Format frame response based on content
     return new Response(
       generateFrameHtml({
-        postUrl: req.url,
-        imageUrl: currentToken.imageUrl || `${hostUrl}/placeholder.png`,
+        postUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/frame`,
+        imageUrl: currentToken.imageUrl || `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/placeholder.png`,
         token: currentToken,
         recommendations
       }),
@@ -177,8 +175,8 @@ export async function POST(req: NextRequest) {
     console.error('Frame error:', error)
     return new Response(
       generateFrameHtml({
-        postUrl: req.url,
-        imageUrl: `${process.env.NEXT_PUBLIC_HOST_URL}/error.png`,
+        postUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/frame`,
+        imageUrl: `${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/error.png`,
         errorMessage: 'Something went wrong. Please try again.'
       }),
       { headers: { 'Content-Type': 'text/html' } }

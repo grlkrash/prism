@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { logger } from '@/utils/logger';
 import { OpenAI } from 'openai';
+import { getTokenMentions, extractTokenMentions } from '@/utils/farcaster';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -19,12 +20,29 @@ export async function POST(request: Request) {
       hasContext: !!body.context
     });
 
+    // Get art/culture token mentions from Farcaster
+    const tokenMentions = await getTokenMentions('art', 20);
+    const artTokens = tokenMentions
+      .map(cast => extractTokenMentions(cast.text))
+      .flat()
+      .filter(mention => mention.category === 'art' || mention.category === 'culture');
+
     // Get recommendations from OpenAI
     const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo-preview",
       messages: [{
         role: "system",
-        content: "You are an expert in cultural tokens and digital art. Provide token recommendations in this format:\n\nToken Recommendations:\n1. TokenName ($SYMBOL): Description\n\nActions:\nview|SYMBOL|View Details\nbuy|SYMBOL|Buy Now\nshare|SYMBOL|Share Token"
+        content: `You are an expert in cultural tokens and digital art. Focus on tokens related to art and culture.
+Current trending art/culture tokens from Farcaster: ${artTokens.map(t => '$' + t.tokenId).join(', ')}
+
+Provide token recommendations in this format:
+Token Recommendations:
+1. TokenName ($SYMBOL): Description focused on cultural and artistic significance
+
+Actions:
+view|SYMBOL|View Details
+buy|SYMBOL|Buy Now
+share|SYMBOL|Share Token`
       }, {
         role: "user",
         content: body.message

@@ -111,82 +111,117 @@ export async function getReferrals(userId: string): Promise<Referral[]> {
 
 export async function sendMessage({ message, userId, threadId, context }: SendMessageParams): Promise<AgentResponse> {
   try {
-    // Log request
-    console.info('[INFO] Agent request:', { message, userId, hasContext: !!context })
+    // Get friend activities and token mentions from Farcaster
+    const friendActivities = await getFriendActivities(userId);
+    const artTokenMentions = friendActivities
+      .map(activity => extractTokenMentions(activity.tokenId))
+      .flat()
+      .filter(mention => mention.category === 'art' || mention.category === 'culture');
+
+    // Log request with Farcaster context
+    console.info('[INFO] Agent request:', { 
+      message, 
+      userId, 
+      hasContext: !!context,
+      artTokenMentions 
+    });
 
     // Get agent response
     const response = await fetch(`${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/agent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, userId, threadId, context })
-    })
+      body: JSON.stringify({ 
+        message, 
+        userId, 
+        threadId, 
+        context: {
+          ...context,
+          artTokenMentions
+        }
+      })
+    });
 
     if (!response.ok) {
-      throw new Error(`Agent request failed: ${response.status}`)
+      throw new Error(`Agent request failed: ${response.status}`);
     }
 
-    const data = await response.json()
-    console.info('[INFO] Raw agent response:', data)
+    const data = await response.json();
+    console.info('[INFO] Raw agent response:', data);
 
     // Parse recommendations from content
-    const recommendations = parseRecommendations(data.content)
-    const actions = parseActions(data.content)
+    const recommendations = parseRecommendations(data.content);
+    const actions = parseActions(data.content);
+
+    // Enhance recommendations with Farcaster context
+    const enhancedRecommendations = recommendations.map(rec => ({
+      ...rec,
+      farcasterMentions: artTokenMentions.filter(m => m.tokenId === rec.symbol).length,
+      trending: artTokenMentions.some(m => m.tokenId === rec.symbol)
+    }));
 
     return {
       hasContent: true,
       metadata: {
-        tokenRecommendations: recommendations,
+        tokenRecommendations: enhancedRecommendations,
         actions
       }
-    }
+    };
 
   } catch (error) {
-    console.error('[ERROR] Agent error:', error)
+    console.error('[ERROR] Agent error:', error);
     return {
       hasContent: true,
       metadata: {
         tokenRecommendations: [],
         actions: []
       }
-    }
+    };
   }
 }
 
 function parseRecommendations(content: string): any[] {
   try {
-    const recommendations: any[] = []
-    const lines = content.split('\n')
+    const recommendations: any[] = [];
+    const lines = content.split('\n');
     
-    let currentToken: any = null
+    let currentToken: any = null;
+    let description = '';
     
     for (const line of lines) {
       // Match token line: "1. TokenName ($SYMBOL):"
-      if (line.match(/^\d+\.\s+([^(]+)\s+\((\$[^)]+)\):/)) {
-        // New token found
+      const tokenMatch = line.match(/^\d+\.\s+([^(]+)\s+\((\$[^)]+)\):/);
+      if (tokenMatch) {
+        // Save previous token if exists
         if (currentToken) {
-          recommendations.push(currentToken)
+          currentToken.description = description.trim();
+          recommendations.push(currentToken);
+          description = '';
         }
-        const [, name, symbol] = line.match(/^\d+\.\s+([^(]+)\s+\((\$[^)]+)\):/) || []
+        
+        const [, name, symbol] = tokenMatch;
         currentToken = {
           name: name.trim(),
           symbol: symbol?.replace('$', '').trim(),
           description: '',
           imageUrl: `https://placehold.co/1200x630/png?text=${symbol?.replace('$', '') || name}`,
-          price: 'Market Price'
-        }
+          price: 'Market Price',
+          category: 'art'
+        };
       } else if (currentToken && line.trim()) {
-        currentToken.description += line.trim() + ' '
+        description += ' ' + line.trim();
       }
     }
     
+    // Add the last token
     if (currentToken) {
-      recommendations.push(currentToken)
+      currentToken.description = description.trim();
+      recommendations.push(currentToken);
     }
 
-    return recommendations
+    return recommendations;
   } catch (error) {
-    console.error('[ERROR] Failed to parse recommendations:', error)
-    return []
+    console.error('[ERROR] Failed to parse recommendations:', error);
+    return [];
   }
 }
 
