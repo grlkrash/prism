@@ -189,47 +189,48 @@ interface FrameMessage {
   fid?: string
 }
 
-async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
+export async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
-    const body = await req.json()
-    
-    // Basic frame message validation
-    if (!body || !body.untrustedData) {
-      return { isValid: false }
-    }
-
-    const { untrustedData } = body
-    
-    // Extract button and fid
-    const buttonIndex = untrustedData.buttonIndex || 1
-    const fid = untrustedData.fid
+    const data = await req.json()
+    const { untrustedData } = data
 
     // In development, always return valid
     if (process.env.NODE_ENV === 'development') {
-      return { 
+      return {
         isValid: true,
         message: {
-          button: buttonIndex,
-          fid: fid?.toString() || 'test-user-123'
+          button: 1,
+          fid: 'test-user-123'
         }
       }
     }
 
-    // In production, validate the frame message
-    const isValidMessage = untrustedData && 
-      typeof untrustedData.buttonIndex === 'number' &&
-      untrustedData.buttonIndex >= 1 &&
-      untrustedData.buttonIndex <= 4
+    // Validate required fields
+    if (!untrustedData || !untrustedData.fid) {
+      logger.error('Invalid frame request: Missing required fields')
+      return { isValid: false }
+    }
+
+    // Extract button index and fid
+    const buttonIndex = untrustedData.buttonIndex || 1
+    const fid = untrustedData.fid
+
+    // Validate button index
+    if (typeof buttonIndex !== 'number' || buttonIndex < 1 || buttonIndex > 4) {
+      logger.error('Invalid frame request: Invalid button index')
+      return { isValid: false }
+    }
 
     return {
-      isValid: isValidMessage,
-      message: isValidMessage ? {
+      isValid: true,
+      message: {
         button: buttonIndex,
-        fid: fid?.toString()
-      } : undefined
+        fid: fid.toString()
+      }
     }
   } catch (error) {
-    console.error('[ERROR] Frame validation error:', error)
+    logger.error('Frame validation error:', error)
     return { isValid: false }
   }
+} 
 } 

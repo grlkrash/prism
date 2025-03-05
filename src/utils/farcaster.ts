@@ -30,7 +30,7 @@ const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://
 export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com'
-    const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`
+    const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`
     
     const response = await fetch(url, {
       ...options,
@@ -42,10 +42,12 @@ export async function farcasterRequest(endpoint: string, options: RequestInit = 
     })
 
     if (!response.ok) {
-      throw new FarcasterError(`API error: ${response.statusText}`)
+      logger.error(`[ERROR] Farcaster API error: ${response.status} ${response.statusText}`)
+      throw new FarcasterError(`API error: ${response.status} ${response.statusText}`)
     }
 
-    return await response.json()
+    const data = await response.json()
+    return data
   } catch (error) {
     logger.error('[ERROR] Farcaster request failed:', error)
     throw new FarcasterError(error instanceof Error ? error.message : 'Unknown error')
@@ -55,7 +57,7 @@ export async function farcasterRequest(endpoint: string, options: RequestInit = 
 // Get user's following
 export async function getFarcasterFollowing(fid: string | number, limit = 100) {
   try {
-    const data = await farcasterRequest(`/following?fid=${fid}&limit=${limit}`)
+    const data = await farcasterRequest(`v2/following?fid=${fid}&limit=${limit}`)
     return data.following || []
   } catch (error) {
     logger.error('[ERROR] Failed to get following:', error)
@@ -66,7 +68,7 @@ export async function getFarcasterFollowing(fid: string | number, limit = 100) {
 // Get user's casts
 export async function getFarcasterCasts(fid: string | number, limit = 100) {
   try {
-    const data = await farcasterRequest(`/casts?fid=${fid}&limit=${limit}`)
+    const data = await farcasterRequest(`v2/casts?fid=${fid}&limit=${limit}`)
     return data.casts || []
   } catch (error) {
     logger.error('[ERROR] Failed to get casts:', error)
@@ -77,7 +79,7 @@ export async function getFarcasterCasts(fid: string | number, limit = 100) {
 // Get token mentions
 export async function getTokenMentions(tokenName: string, limit: number = 10) {
   try {
-    const data = await farcasterRequest(`/search-casts?q=$${tokenName}&limit=${limit}`)
+    const data = await farcasterRequest(`v2/search-casts?q=$${tokenName}&limit=${limit}`)
     return data.result?.casts || []
   } catch (error) {
     logger.error('Failed to get token mentions:', error)
