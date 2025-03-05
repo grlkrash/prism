@@ -338,16 +338,30 @@ async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): 
 
 export async function analyzeToken(token: Token): Promise<Token> {
   try {
-    // Ensure token has required fields
+    if (!MBD_AI_CONFIG.API_KEY) {
+      // Return token as-is if no API key
+      return token
+    }
+
+    const response = await fetch(`${MBD_AI_CONFIG.API_URL}/analyze/token`, {
+      method: 'POST',
+      headers: MBD_AI_CONFIG.getHeaders(),
+      body: JSON.stringify(token)
+    })
+
+    if (!response.ok) {
+      throw new MbdApiError('Failed to analyze token', response.status)
+    }
+
+    const data = await response.json()
     return {
       ...token,
-      id: String(token.id),
-      culturalScore: token.culturalScore || Math.floor(Math.random() * 100),
-      tokenType: 'ERC20' as const
+      ...data
     }
   } catch (error) {
     logger.error('Error analyzing token:', error)
-    throw new MbdApiError('Failed to analyze token')
+    // Return original token if analysis fails
+    return token
   }
 }
 
@@ -389,18 +403,89 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
   return contentScore > 0.6 || imageScore > 0.6
 }
 
-export async function getPersonalizedFeed(userId: string, cursor?: string) {
+export async function getPersonalizedFeed(fid: string | number): Promise<FeedResponse> {
   try {
-    return await makeMbdRequest<FeedResponse>(MBD_AI_CONFIG.ENDPOINTS.FEED_FOR_YOU, {
-      userId,
-      cursor
-    }, userId)
-  } catch (error) {
-    if (error instanceof RateLimitError) {
-      throw error
+    if (!MBD_AI_CONFIG.API_KEY) {
+      // Use mock data in development if no API key
+      if (process.env.NODE_ENV === 'development') {
+        return {
+          casts: tokenDatabase.map(token => ({
+            hash: token.id.toString(),
+            author: {
+              fid: 1,
+              username: token.artistName,
+              displayName: token.artistName,
+              pfp: token.imageUrl
+            },
+            text: token.description,
+            timestamp: Date.now().toString(),
+            reactions: {
+              likes: Math.floor(Math.random() * 100),
+              recasts: Math.floor(Math.random() * 50)
+            }
+          }))
+        }
+      }
+      throw new MbdApiError('Missing API key')
     }
-    logger.error('Error getting personalized feed:', error)
-    return { casts: [], next: undefined }
+
+    const url = new URL(`${MBD_AI_CONFIG.WARPCAST_API_URL}${MBD_AI_CONFIG.ENDPOINTS.FEED_FOR_YOU}`)
+    url.searchParams.append('fid', fid.toString())
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        ...MBD_AI_CONFIG.getHeaders(),
+        'Origin': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'Authorization, Content-Type'
+      },
+      credentials: 'include',
+      next: { revalidate: 60 } // Cache for 1 minute
+    })
+
+    if (response.status === 403) {
+      logger.error('Access denied to Warpcast API', { status: response.status })
+      throw new MbdApiError('Access denied to Warpcast API', 403)
+    }
+
+    if (!response.ok) {
+      throw new MbdApiError('Failed to fetch personalized feed', response.status)
+    }
+
+    const data = await response.json()
+    
+    // Transform Warpcast response to our FeedResponse format
+    const transformedData: FeedResponse = {
+      casts: data.result.casts.map((cast: any) => ({
+        hash: cast.hash,
+        threadHash: cast.threadHash,
+        parentHash: cast.parentHash,
+        author: {
+          fid: cast.author.fid,
+          username: cast.author.username,
+          displayName: cast.author.displayName,
+          pfp: cast.author.pfp
+        },
+        text: cast.text,
+        timestamp: cast.timestamp,
+        reactions: {
+          likes: cast.reactions?.likes || 0,
+          recasts: cast.reactions?.recasts || 0
+        },
+        replies: cast.replies,
+        viewerContext: cast.viewerContext,
+        labels: cast.labels,
+        aiAnalysis: cast.aiAnalysis
+      })),
+      next: data.next ? { cursor: data.next.cursor } : undefined
+    }
+
+    return transformedData
+  } catch (error) {
+    logger.error('Error fetching personalized feed:', error)
+    // Return empty feed instead of throwing
+    return { casts: [] }
   }
 }
 
@@ -448,17 +533,87 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
   }
 }
 
-export async function getTrendingFeed(cursor?: string) {
+export async function getTrendingFeed(cursor?: string): Promise<FeedResponse> {
   try {
-    return await makeMbdRequest<FeedResponse>(MBD_AI_CONFIG.ENDPOINTS.FEED_TRENDING, {
-      cursor
-    })
-  } catch (error) {
-    if (error instanceof RateLimitError) {
-      throw error
+    if (!MBD_AI_CONFIG.API_KEY) {
+      // Use mock data in development if no API key
+      if (process.env.NODE_ENV === 'development') {
+        return {
+          casts: tokenDatabase.map(token => ({
+            hash: token.id.toString(),
+            author: {
+              fid: 1,
+              username: token.artistName,
+              displayName: token.artistName,
+              pfp: token.imageUrl
+            },
+            text: token.description,
+            timestamp: Date.now().toString(),
+            reactions: {
+              likes: Math.floor(Math.random() * 100),
+              recasts: Math.floor(Math.random() * 50)
+            }
+          }))
+        }
+      }
+      throw new MbdApiError('Missing API key')
     }
-    logger.error('Error getting trending feed:', error)
-    return { casts: [], next: undefined }
+
+    const url = new URL(`${MBD_AI_CONFIG.WARPCAST_API_URL}${MBD_AI_CONFIG.ENDPOINTS.FEED_TRENDING}`)
+    if (cursor) url.searchParams.append('cursor', cursor)
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        ...MBD_AI_CONFIG.getHeaders(),
+        'Origin': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'Authorization, Content-Type'
+      },
+      credentials: 'include',
+      next: { revalidate: 60 } // Cache for 1 minute
+    })
+
+    if (response.status === 403) {
+      logger.error('Access denied to Warpcast API', { status: response.status })
+      throw new MbdApiError('Access denied to Warpcast API', 403)
+    }
+
+    if (!response.ok) {
+      throw new MbdApiError('Failed to fetch trending feed', response.status)
+    }
+
+    const data = await response.json()
+    
+    // Transform Warpcast response to our FeedResponse format
+    const transformedData: FeedResponse = {
+      casts: data.result.casts.map((cast: any) => ({
+        hash: cast.hash,
+        threadHash: cast.threadHash,
+        parentHash: cast.parentHash,
+        author: {
+          fid: cast.author.fid,
+          username: cast.author.username,
+          displayName: cast.author.displayName,
+          pfp: cast.author.pfp
+        },
+        text: cast.text,
+        timestamp: cast.timestamp,
+        reactions: {
+          likes: cast.reactions?.likes || 0,
+          recasts: cast.reactions?.recasts || 0
+        },
+        replies: cast.replies,
+        viewerContext: cast.viewerContext
+      })),
+      next: data.next ? { cursor: data.next.cursor } : undefined
+    }
+
+    return transformedData
+  } catch (error) {
+    logger.error('Error fetching trending feed:', error)
+    // Return empty feed instead of throwing
+    return { casts: [] }
   }
 }
 

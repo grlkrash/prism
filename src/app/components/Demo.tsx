@@ -37,21 +37,33 @@ export default function Demo() {
     const load = async () => {
       try {
         if (!sdk) throw new Error('SDK not loaded')
-        await new Promise(resolve => setTimeout(resolve, 100))
         
+        // Add delay for SDK initialization
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        // Initialize SDK with proper configuration
         const ctx = await sdk.context
+        if (!ctx) throw new Error('Failed to get SDK context')
+        
         setContext(ctx?.user || null)
         
-        if (sdk.actions) {
-          await sdk.actions.ready()
-          setIsSDKLoaded(true)
-          await loadInitialData(ctx?.user?.fid)
+        if (!sdk.actions) throw new Error('SDK actions not available')
+        
+        // Signal ready to Farcaster client
+        await sdk.actions.ready()
+        setIsSDKLoaded(true)
+        
+        // Only load initial data if we have a valid FID
+        if (ctx?.user?.fid) {
+          await loadInitialData(ctx.user.fid)
         } else {
-          throw new Error('SDK actions not available')
+          // Load anonymous data
+          await loadInitialData()
         }
       } catch (err) {
         console.error('Failed to initialize SDK:', err)
         setError(err instanceof Error ? err.message : 'Failed to initialize SDK')
+        setIsSDKLoaded(true) // Set to true to exit loading state even on error
       }
     }
     load()
@@ -61,30 +73,62 @@ export default function Demo() {
   const loadInitialData = async (fid?: number) => {
     setIsLoading(true)
     try {
-      // Get recommendations from agent
-      const response = await sendMessage({
-        message: 'Please recommend some trending cultural tokens based on Farcaster activity',
-        userId: fid?.toString() || 'anonymous',
-        context: {
-          userPreferences: {
-            interests: ['art', 'music', 'culture']
-          }
-        }
-      })
+      // Try to get recommendations first
+      let hasData = false
+      
+      if (fid) {
+        try {
+          const response = await sendMessage({
+            message: 'Please recommend some trending cultural tokens based on Farcaster activity',
+            userId: fid.toString(),
+            context: {
+              userPreferences: {
+                interests: ['art', 'music', 'culture']
+              }
+            }
+          })
 
-      if (response.metadata?.tokenRecommendations) {
-        setTokens(response.metadata.tokenRecommendations)
+          if (response.metadata?.tokenRecommendations) {
+            setTokens(response.metadata.tokenRecommendations)
+            hasData = true
+          }
+        } catch (e) {
+          console.error('Failed to get recommendations:', e)
+        }
       }
 
-      // Get trending feed as fallback
-      const trendingFeed = await getTrendingFeed()
-      if (trendingFeed.next?.cursor) {
-        setCursor(trendingFeed.next.cursor)
-        setHasMore(true)
+      // Fallback to trending feed if no recommendations
+      if (!hasData) {
+        const trendingFeed = await getTrendingFeed()
+        if (trendingFeed.casts) {
+          const newTokens = trendingFeed.casts.map(cast => ({
+            id: cast.hash,
+            name: cast.text.split('\n')[0] || 'Untitled Token',
+            symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
+            description: cast.text,
+            price: 0.001,
+            image: cast.author.pfp,
+            category: 'cultural',
+            metadata: {
+              authorFid: String(cast.author.fid),
+              authorUsername: cast.author.username,
+              timestamp: Number(cast.timestamp),
+              likes: cast.reactions.likes,
+              recasts: cast.reactions.recasts
+            }
+          }))
+          setTokens(newTokens)
+        }
+        
+        if (trendingFeed.next?.cursor) {
+          setCursor(trendingFeed.next.cursor)
+          setHasMore(true)
+        }
       }
     } catch (error) {
       console.error('Failed to load initial data:', error)
       setError('Failed to load recommendations')
+      setTokens([]) // Set empty array to show error state
     } finally {
       setIsLoading(false)
     }

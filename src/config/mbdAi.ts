@@ -1,15 +1,21 @@
 export const MBD_AI_CONFIG = {
   // API Configuration
-  API_URL: process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
+  API_URL: process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.warpcast.com',
+  WARPCAST_API_URL: 'https://api.warpcast.com',
   API_KEY: process.env.MBD_API_KEY,
   
   // Headers Configuration
-  HEADERS: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${process.env.MBD_API_KEY}`,
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  getHeaders: () => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
+    
+    if (process.env.MBD_API_KEY) {
+      headers['Authorization'] = `Bearer ${process.env.MBD_API_KEY}`
+    }
+    
+    return headers
   },
 
   // Rate Limiting
@@ -20,11 +26,14 @@ export const MBD_AI_CONFIG = {
 
   // Endpoints
   ENDPOINTS: {
-    FEED_FOR_YOU: '/farcaster/feed/for-you',
-    FEED_TRENDING: '/farcaster/feed/trending',
-    SEARCH_SEMANTIC: '/farcaster/search/semantic',
-    LABELS_FOR_ITEMS: '/farcaster/labels/for-items',
-    USERS_SIMILAR: '/farcaster/users/similar'
+    FEED_FOR_YOU: '/v2/feed',
+    FEED_TRENDING: '/v2/discover-actions',
+    SEARCH_SEMANTIC: '/v2/search',
+    LABELS_FOR_ITEMS: '/v2/labels',
+    USERS_SIMILAR: '/v2/users/similar',
+    CHANNEL_FOLLOWS: '/fc/channel-follows',
+    BLOCKED_USERS: '/fc/blocked-users',
+    ACCOUNT_VERIFICATIONS: '/fc/account-verifications'
   },
 
   // Cultural Token Detection
