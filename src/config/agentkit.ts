@@ -87,9 +87,8 @@ const llm = new ChatOpenAI({
   modelName: AGENTKIT_CONFIG.MODEL,
   temperature: AGENTKIT_CONFIG.TEMPERATURE,
   maxTokens: AGENTKIT_CONFIG.MAX_TOKENS,
-  openAIApiKey: process.env.OPENAI_API_KEY,
   modelKwargs: {
-    response_format: { type: "json_object" }
+    response_format: { type: "text" }
   }
 })
 
@@ -99,13 +98,32 @@ let agentInstance: any = null
 export async function getAgent() {
   if (!agentInstance) {
     const prompt = ChatPromptTemplate.fromMessages([
-      ["system", AGENTKIT_CONFIG.SYSTEM_PROMPT],
+      ["system", `${AGENTKIT_CONFIG.SYSTEM_PROMPT}
+When recommending tokens, always respond in this format:
+
+Token Recommendations:
+1. [token name]: [description]
+2. [token name]: [description]
+...
+
+Actions:
+view|[tokenId]|View Details
+buy|[tokenId]|Buy Now
+share|[tokenId]|Share
+`],
       ["human", "{input}"]
     ])
 
-    const outputParser = new JsonOutputFunctionsParser()
+    const chain = {
+      invoke: async ({ messages, configurable }: { messages: any[], configurable: any }) => {
+        const formattedMessages = await prompt.formatMessages({
+          input: messages[messages.length - 1].content
+        })
+        const response = await llm.invoke(formattedMessages, { configurable })
+        return { messages: [response] }
+      }
+    }
 
-    const chain = prompt.pipe(llm).pipe(outputParser)
     agentInstance = chain
   }
   return agentInstance

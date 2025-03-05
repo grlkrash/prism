@@ -150,20 +150,48 @@ export async function sendMessage(request: unknown): Promise<any> {
     // Get agent instance
     const agent = await getAgent()
     
-    // Call agent with message
+    // Generate thread ID
+    const threadId = `grlkrash-agent-${crypto.randomUUID()}`
+    
+    // Call agent with message and thread ID
     const result = await agent.invoke({
-      input: message
+      messages: [new HumanMessage(message)],
+      configurable: {
+        thread_id: threadId
+      }
     })
 
-    // Format response
+    // Extract content from result
+    let content = ''
+    try {
+      if (typeof result === 'string') {
+        content = result
+      } else if (result?.content) {
+        content = typeof result.content === 'string' 
+          ? result.content 
+          : JSON.stringify(result.content)
+      } else if (result?.messages?.[0]?.content) {
+        content = typeof result.messages[0].content === 'string'
+          ? result.messages[0].content
+          : JSON.stringify(result.messages[0].content)
+      }
+    } catch (err) {
+      logger.error('Error extracting content:', err)
+      content = 'Error processing response'
+    }
+
+    // Extract recommendations and actions
+    const tokenRecommendations = extractTokenRecommendations(content)
+    const actions = extractActions(content)
+
     return {
-      id: crypto.randomUUID(),
-      content: result.response || result.output || '',
+      id: threadId,
+      content,
       role: 'assistant',
       timestamp: new Date().toISOString(),
       metadata: {
-        tokenRecommendations: extractTokenRecommendations(result.response || ''),
-        actions: result.actions || []
+        tokenRecommendations,
+        actions
       }
     }
 
@@ -179,48 +207,56 @@ export async function sendMessage(request: unknown): Promise<any> {
   }
 }
 
-function extractTokenRecommendations(output: string) {
+function extractTokenRecommendations(content: string) {
   try {
-    const regex = /Token Recommendations:([\s\S]*?)(?=\n\n|$)/
-    const match = output.match(regex)
-    if (!match) return []
-
-    const recommendations = match[1].trim().split('\n').map(line => {
-      const [name, description] = line.split(':').map(s => s.trim())
-      return {
-        id: crypto.randomUUID(),
-        name,
-        description,
-        imageUrl: '', // Would be populated from token metadata
-        price: '0', // Would be populated from price feed
-      }
-    })
-
+    if (!content) return []
+    
+    // Extract recommendations section
+    const recommendationsMatch = content.match(/Token Recommendations:([\s\S]*?)(?=Actions:|$)/)
+    if (!recommendationsMatch) return []
+    
+    const recommendationsText = recommendationsMatch[1].trim()
+    const recommendations = recommendationsText.split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        const match = line.match(/\d+\.\s*([^:]+):\s*(.+)/)
+        if (!match) return null
+        
+        return {
+          id: crypto.randomUUID(),
+          name: match[1].trim(),
+          description: match[2].trim(),
+          imageUrl: '', // Will be populated by MBD AI
+          price: '0',
+          culturalScore: Math.random() * 100 // Placeholder
+        }
+      })
+      .filter(Boolean)
+    
     return recommendations
   } catch (error) {
-    console.error('Error extracting recommendations:', error)
+    logger.error('Error extracting recommendations:', error)
     return []
   }
 }
 
-function extractActions(output: string) {
+function extractActions(content: string) {
   try {
-    const regex = /Actions:([\s\S]*?)(?=\n\n|$)/
-    const match = output.match(regex)
-    if (!match) return []
-
-    const actions = match[1].trim().split('\n').map(line => {
-      const [type, tokenId, label] = line.split('|').map(s => s.trim())
-      return {
-        type: type as 'view' | 'buy' | 'share' | 'analyze' | 'farcaster',
-        tokenId,
-        label
-      }
-    })
-
-    return actions
+    if (!content) return []
+    
+    const actionsMatch = content.match(/Actions:([\s\S]*?)$/)
+    if (!actionsMatch) return []
+    
+    const actionsText = actionsMatch[1].trim()
+    return actionsText.split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        const [type, tokenId, label] = line.trim().split('|')
+        return { type, tokenId, label }
+      })
+      .filter(action => action.type && action.tokenId && action.label)
   } catch (error) {
-    console.error('Error extracting actions:', error)
+    logger.error('Error extracting actions:', error)
     return []
   }
 }
