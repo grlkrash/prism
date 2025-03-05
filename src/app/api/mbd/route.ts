@@ -20,10 +20,7 @@ export async function GET(req: NextRequest) {
     }
 
     const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.MBD_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
+      headers: MBD_AI_CONFIG.getHeaders()
     })
 
     if (!response.ok) {
@@ -71,10 +68,7 @@ export async function POST(req: NextRequest) {
     
     const response = await fetch(`${MBD_AI_CONFIG.API_URL}${endpoint}`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.MBD_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
+      headers: MBD_AI_CONFIG.getHeaders(),
       body: JSON.stringify(body)
     })
 

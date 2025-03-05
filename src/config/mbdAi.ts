@@ -84,7 +84,8 @@ export const MBD_AI_CONFIG = {
 }
 
 // Validate configuration immediately
-if (!process.env.MBD_API_KEY) {
+const apiKey = process.env.MBD_API_KEY || process.env.NEXT_PUBLIC_MBD_API_KEY
+if (!apiKey) {
   console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
 }
 

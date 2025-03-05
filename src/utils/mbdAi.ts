@@ -6,11 +6,11 @@ const MBD_API_KEY = process.env.MBD_API_KEY
 const MBD_API_URL = process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
 
 if (!MBD_API_KEY) {
-  logger.error('[ERROR] MBD API key not found. Please set MBD_API_KEY in your environment variables.')
+  console.error('[MBD AI] API key not found. Please set MBD_API_KEY in your environment variables.')
 }
 
 if (!MBD_API_URL) {
-  console.error('[MBD AI] API URL not found - **')
+  console.error('[MBD AI] API URL not found')
 }
 
 export interface Token {
@@ -291,60 +291,47 @@ function checkRateLimit(userId: string): boolean {
 
 // Update makeMbdRequest to handle errors better
 async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): Promise<T> {
+  if (!MBD_API_KEY) {
+    throw new MbdApiError('Missing API key')
+  }
+
+  // Rate limit check
+  if (userId && !checkRateLimit(userId)) {
+    throw new RateLimitError('Rate limit exceeded')
+  }
+
   try {
-    if (!MBD_API_KEY) {
-      throw new MbdApiError('Missing API key')
-    }
-
-    // Check rate limit if userId is provided
-    if (userId && !checkRateLimit(userId)) {
-      logger.warn('Rate limit exceeded', { userId, endpoint })
-      throw new RateLimitError(MBD_AI_CONFIG.ERRORS.RATE_LIMIT)
-    }
-
     const response = await fetch(`${MBD_API_URL}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MBD_API_KEY}`
+        'Authorization': `Bearer ${MBD_API_KEY}`,
       },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }))
-      logger.error('MBD AI API request failed', { 
-        status: response.status, 
-        error: errorData,
-        endpoint 
-      })
+      const errorData = await response.json().catch(() => ({}))
       throw new MbdApiError(
-        errorData.message || MBD_AI_CONFIG.ERRORS.API_ERROR,
+        errorData.error?.message || 'API request failed',
         response.status,
-        errorData.code
+        errorData.error?.code
       )
     }
 
     const result = await response.json()
     
-    if (result.error) {
-      logger.error('MBD AI API returned error', { 
-        error: result.error,
-        endpoint 
-      })
-      throw new MbdApiError(result.error.message || 'API Error', undefined, result.error.code)
+    // Handle potential undefined data
+    if (!result || !result.data) {
+      throw new MbdApiError('Invalid API response')
     }
 
-    return result.data || result
+    return result.data as T
   } catch (error) {
     if (error instanceof MbdApiError) {
       throw error
     }
-    logger.error('Failed to communicate with MBD AI API', { 
-      error,
-      endpoint 
-    })
-    throw new MbdApiError(error instanceof Error ? error.message : MBD_AI_CONFIG.ERRORS.API_ERROR)
+    throw new MbdApiError(error instanceof Error ? error.message : 'Unknown error')
   }
 }
 
@@ -547,60 +534,24 @@ export async function analyzeImage(imageUrl: string, userId?: string) {
 
 export async function getTrendingFeed(cursor?: string): Promise<FeedResponse> {
   try {
-    if (!MBD_API_KEY) {
-      logger.error('[MBD AI] Error fetching trending feed: Missing API key')
-      throw new MbdApiError('Missing API key')
-    }
-
-    const url = new URL(`${MBD_API_URL}/trending${cursor ? `?cursor=${cursor}` : ''}`)
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${MBD_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
+    const data = await makeMbdRequest<FeedResponse>('/v2/discover-actions', {
+      cursor,
+      limit: 20,
+      filter: {
+        type: 'cultural',
+      },
     })
-
-    if (response.status === 403) {
-      logger.error('Access denied to Warpcast API', { status: response.status })
-      throw new MbdApiError('Access denied to Warpcast API', 403)
-    }
-
-    if (!response.ok) {
-      throw new MbdApiError('Failed to fetch trending feed', response.status)
-    }
-
-    const data = await response.json()
     
-    // Transform Warpcast response to our FeedResponse format
-    const transformedData: FeedResponse = {
-      casts: data.result.casts.map((cast: any) => ({
-        hash: cast.hash,
-        threadHash: cast.threadHash,
-        parentHash: cast.parentHash,
-        author: {
-          fid: cast.author.fid,
-          username: cast.author.username,
-          displayName: cast.author.displayName,
-          pfp: cast.author.pfp
-        },
-        text: cast.text,
-        timestamp: cast.timestamp,
-        reactions: {
-          likes: cast.reactions?.likes || 0,
-          recasts: cast.reactions?.recasts || 0
-        },
-        replies: cast.replies,
-        viewerContext: cast.viewerContext
-      })),
-      next: data.next ? { cursor: data.next.cursor } : undefined
+    // Ensure we have valid data structure
+    if (!data || !Array.isArray(data.casts)) {
+      throw new MbdApiError('Invalid feed response')
     }
-
-    return transformedData
+    
+    return data
   } catch (error) {
-    logger.error('Error fetching trending feed:', error)
-    throw error
+    console.error('[ERROR] Error fetching trending feed:', error)
+    // Return empty feed instead of throwing
+    return { casts: [] }
   }
 }
 
