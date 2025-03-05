@@ -1,8 +1,19 @@
 import { NextResponse } from 'next/server'
 import { logger } from '@/utils/logger'
-import { generateAuthToken } from '@/utils/farcaster'
+import { MBD_AI_CONFIG } from '@/config/mbdAi'
 
-const WARPCAST_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com/v2'
+// CORS middleware
+function setCorsHeaders(response: NextResponse) {
+  response.headers.set('Access-Control-Allow-Origin', '*')
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  return response
+}
+
+// OPTIONS handler for CORS preflight
+export async function OPTIONS() {
+  return setCorsHeaders(new NextResponse(null, { status: 200 }))
+}
 
 export async function GET(request: Request) {
   try {
@@ -11,37 +22,41 @@ export async function GET(request: Request) {
     const cursor = searchParams.get('cursor')
 
     if (!endpoint) {
-      return NextResponse.json({ error: 'Missing endpoint parameter' }, { status: 400 })
+      return setCorsHeaders(
+        NextResponse.json(
+          { error: 'Missing endpoint parameter' },
+          { status: 400 }
+        )
+      )
     }
 
-    const authToken = await generateAuthToken()
-    if (!authToken) {
-      return NextResponse.json({ error: 'Failed to generate auth token' }, { status: 401 })
-    }
-
-    const url = new URL(endpoint, WARPCAST_API_URL)
-    if (cursor) {
-      url.searchParams.append('cursor', cursor)
-    }
+    const url = new URL(`${MBD_AI_CONFIG.API_URL}${endpoint}`)
+    if (cursor) url.searchParams.set('cursor', cursor)
 
     const response = await fetch(url.toString(), {
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${authToken}`
-      }
+      headers: MBD_AI_CONFIG.HEADERS,
+      next: { revalidate: 60 } // Cache for 1 minute
     })
 
     if (!response.ok) {
-      throw new Error(`API request failed: ${response.statusText}`)
+      logger.error(`API error: ${response.statusText}`)
+      return setCorsHeaders(
+        NextResponse.json(
+          { error: `API error: ${response.statusText}` },
+          { status: response.status }
+        )
+      )
     }
 
     const data = await response.json()
-    return NextResponse.json(data)
+    return setCorsHeaders(NextResponse.json(data))
   } catch (error) {
-    logger.error('Error in /api/farcaster:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch Farcaster data' },
-      { status: 500 }
+    logger.error('Error in Farcaster route:', error)
+    return setCorsHeaders(
+      NextResponse.json(
+        { error: 'Internal server error' },
+        { status: 500 }
+      )
     )
   }
 } 

@@ -4,6 +4,43 @@ import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit
 import { validateFrameRequest } from '@/utils/mbdAi'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
+import { OpenAI } from 'openai'
+import { logger } from '@/utils/logger'
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+})
+
+// Convert token data to OpenAI-friendly format
+async function convertTokenForAI(token: TokenItem) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo-preview",
+      messages: [{
+        role: "system",
+        content: "You are an expert in cultural tokens and digital art. Convert the given token data into a natural description."
+      }, {
+        role: "user",
+        content: `Please analyze this token: ${JSON.stringify(token)}`
+      }],
+      temperature: 0.7,
+      max_tokens: 150
+    })
+
+    return {
+      ...token,
+      aiDescription: completion.choices[0]?.message?.content || token.description,
+      aiAnalysis: {
+        sentiment: completion.choices[0]?.message?.content?.includes('positive') ? 1 : 0,
+        culturalRelevance: completion.choices[0]?.message?.content?.includes('cultural') ? 1 : 0
+      }
+    }
+  } catch (error) {
+    logger.error('Error in AI conversion:', error)
+    return token
+  }
+}
 
 function generateFrameHtml({
   imageUrl = 'https://placehold.co/1200x630/png',
@@ -16,7 +53,7 @@ function generateFrameHtml({
 }: {
   imageUrl?: string
   postUrl: string
-  token?: TokenItem
+  token?: TokenItem & { aiDescription?: string; aiAnalysis?: { sentiment: number; culturalRelevance: number } }
   recommendations?: any
   friendActivities?: any[]
   referrals?: any[]
@@ -37,7 +74,12 @@ function generateFrameHtml({
   const description = errorMessage 
     ? errorMessage
     : token 
-      ? `${token.description || 'No description available'}\n\nPrice: ${token.price} ETH` 
+      ? `${token.aiDescription || token.description || 'No description available'}\n\nPrice: ${token.price} ETH${
+          token.aiAnalysis 
+            ? `\n\nCultural Relevance: ${token.aiAnalysis.culturalRelevance === 1 ? '🎨 High' : '🖼️ Standard'}
+               Sentiment: ${token.aiAnalysis.sentiment === 1 ? '📈 Positive' : '📊 Neutral'}`
+            : ''
+        }` 
       : friendActivities?.length 
         ? `Your friends' recent activity:\n${friendActivities.map(activity => 
             `${activity.username || 'Someone'} ${activity.action || 'interacted with'}ed ${activity.tokenId || 'a token'}`
@@ -131,6 +173,11 @@ export async function POST(req: NextRequest) {
     let friendActivities: any[] | undefined = undefined
     let referrals: any[] | undefined = undefined
     let errorMessage: string | undefined
+    
+    // Convert token using AI if available
+    if (currentToken) {
+      currentToken = await convertTokenForAI(currentToken)
+    }
     
     // Handle different button actions
     switch (button) {

@@ -2,6 +2,15 @@ export const MBD_AI_CONFIG = {
   // API Configuration
   API_URL: process.env.NEXT_PUBLIC_MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
   API_KEY: process.env.MBD_API_KEY,
+  
+  // Headers Configuration
+  HEADERS: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${process.env.MBD_API_KEY}`,
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  },
 
   // Rate Limiting
   RATE_LIMIT: {
@@ -62,26 +71,26 @@ export const MBD_AI_CONFIG = {
   }
 }
 
-// Debug logging
-console.log('=== MBD AI Configuration Debug ===')
-console.log('1. Environment Check:')
-console.log('- process.env exists:', !!process.env)
-console.log('- Available MBD keys:', Object.keys(process.env).filter(k => k.includes('MBD')))
-console.log('\n2. Configuration Check:')
-console.log('- API_KEY exists:', !!MBD_AI_CONFIG.API_KEY)
-console.log('- API_KEY format:', MBD_AI_CONFIG.API_KEY?.startsWith('mbd-'))
-console.log('- API_URL:', MBD_AI_CONFIG.API_URL)
-
 // Validate configuration in development only
-if (process.env.NODE_ENV === 'development' && !MBD_AI_CONFIG.API_KEY) {
-  console.warn('\n❌ Configuration Error:')
-  console.warn('- MBD AI API key not found in environment variables')
-  console.warn('- MBD_API_KEY must be set')
-  console.warn('- Check .env.local file and environment loading')
-  throw new Error('Missing MBD AI API key configuration')
+if (process.env.NODE_ENV === 'development') {
+  console.log('=== MBD AI Configuration Debug ===')
+  console.log('1. Environment Check:')
+  console.log('- process.env exists:', !!process.env)
+  console.log('- Available MBD keys:', Object.keys(process.env).filter(key => key.includes('MBD')))
+  
+  console.log('\n2. Configuration Check:')
+  console.log('- API_KEY exists:', !!MBD_AI_CONFIG.API_KEY)
+  console.log('- API_KEY format:', typeof MBD_AI_CONFIG.API_KEY === 'string' && MBD_AI_CONFIG.API_KEY.startsWith('mbd_'))
+  console.log('- API_URL:', MBD_AI_CONFIG.API_URL)
+
+  if (!MBD_AI_CONFIG.API_KEY) {
+    console.warn('\n❌ Configuration Error:')
+    console.warn('- MBD AI API key not found')
+    console.warn('- Set MBD_API_KEY in .env.local')
+    console.warn('- Format: mbd_xxxxxxxxxxxx')
+  }
 }
 
-// Export configuration
 export default MBD_AI_CONFIG
 
 // Add helper for checking API status
