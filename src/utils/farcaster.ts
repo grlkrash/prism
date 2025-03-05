@@ -30,7 +30,10 @@ const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://
 export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com'
-    const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`
+    const url = new URL(
+      endpoint.startsWith('http') ? endpoint : `${endpoint.startsWith('/') ? endpoint.slice(1) : endpoint}`,
+      baseUrl
+    ).toString()
     
     const response = await fetch(url, {
       ...options,
@@ -42,7 +45,8 @@ export async function farcasterRequest(endpoint: string, options: RequestInit = 
     })
 
     if (!response.ok) {
-      logger.error(`[ERROR] Farcaster API error: ${response.status} ${response.statusText}`)
+      const errorText = await response.text().catch(() => 'No error details')
+      logger.error(`[ERROR] Farcaster API error: ${response.status} ${response.statusText}`, { errorText })
       throw new FarcasterError(`API error: ${response.status} ${response.statusText}`)
     }
 

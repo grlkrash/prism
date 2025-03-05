@@ -189,7 +189,7 @@ interface FrameMessage {
   fid?: string
 }
 
-export async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
+async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
     const data = await req.json()
     const { untrustedData } = data
