@@ -598,27 +598,28 @@ export interface FrameMessage {
 
 export async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
   try {
-    const body = await req.json()
-    
-    // In development, allow all requests with basic validation
+    // In development, allow all requests with test data
     if (process.env.NODE_ENV === 'development') {
-      const buttonIndex = body.buttonIndex || 1
-      if (buttonIndex < 1 || buttonIndex > 4) {
-        return { isValid: false }
-      }
       return {
         isValid: true,
         message: {
-          button: buttonIndex,
-          fid: body.fid || 'test-user-123' // Default test user in development
+          button: 1,
+          fid: 'test-user-123'
         }
       }
     }
 
-    // Production validation
-    const buttonIndex = body.untrustedData?.buttonIndex || body.buttonIndex
-    const fid = body.untrustedData?.fid || body.fid
+    const body = await req.json()
+    
+    // Basic validation for required fields
+    if (!body || !body.untrustedData) {
+      return { isValid: false }
+    }
 
+    const buttonIndex = body.untrustedData.buttonIndex
+    const fid = body.untrustedData.fid
+
+    // Validate button index is between 1-4
     if (!buttonIndex || buttonIndex < 1 || buttonIndex > 4) {
       return { isValid: false }
     }
@@ -627,11 +628,11 @@ export async function validateFrameRequest(req: NextRequest): Promise<{ isValid:
       isValid: true,
       message: {
         button: buttonIndex,
-        fid: fid
+        fid: fid || 'test-user-123'
       }
     }
   } catch (error) {
-    logger.error('Frame validation error:', error)
+    console.error('Frame validation error:', error)
     return { isValid: false }
   }
 }

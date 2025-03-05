@@ -109,103 +109,111 @@ export async function getReferrals(userId: string): Promise<Referral[]> {
   return []
 }
 
-export async function sendMessage(request: AgentRequest): Promise<AgentResponse> {
+export async function sendMessage({ message, userId, threadId, context }: SendMessageParams): Promise<AgentResponse> {
   try {
-    const validatedRequest = agentRequestSchema.parse(request)
-    const agent = await getAgent()
+    // Log request
+    console.info('[INFO] Agent request:', { message, userId, hasContext: !!context })
 
-    const result = await agent.invoke(validatedRequest)
-    const agentResponse = result.response
-
-    // Log the raw response for debugging
-    logger.info('Raw agent response:', {
-      content: agentResponse.content,
-      hasRecommendations: Array.isArray(agentResponse.recommendations),
-      recommendationsCount: agentResponse.recommendations?.length,
-      hasActions: Array.isArray(agentResponse.actions),
-      actionsCount: agentResponse.actions?.length
+    // Get agent response
+    const response = await fetch(`${process.env.NEXT_PUBLIC_HOST_URL || 'http://localhost:3007'}/api/agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, userId, threadId, context })
     })
-    
-    // Add friend activities to response if requested
-    let friendActivities: FriendActivity[] = []
-    if (validatedRequest.userId) {
-      try {
-        friendActivities = await getFriendActivities(validatedRequest.userId)
-      } catch (error) {
-        logger.error('Error fetching friend activities:', error)
-      }
+
+    if (!response.ok) {
+      throw new Error(`Agent request failed: ${response.status}`)
     }
 
-    // Process recommendations to ensure they have all required fields
-    const tokenRecommendations = Array.isArray(agentResponse.recommendations) ? 
-      agentResponse.recommendations.map(rec => ({
-        id: crypto.randomUUID(),
-        name: rec.name || 'Unknown Token',
-        symbol: rec.symbol || 'TOKEN',
-        description: rec.description || 'No description available',
-        culturalScore: rec.culturalScore || Math.floor(Math.random() * 100),
-        category: rec.category || 'art',
-        tags: rec.tags || ['art', 'culture']
-      })) : []
+    const data = await response.json()
+    console.info('[INFO] Raw agent response:', data)
 
-    // Process actions to ensure they have all required fields
-    const actions = Array.isArray(agentResponse.actions) ?
-      agentResponse.actions.map(action => ({
-        type: action.type || 'view',
-        tokenId: action.tokenId || crypto.randomUUID(),
-        label: action.label || 'View Details'
-      })) : []
+    // Parse recommendations from content
+    const recommendations = parseRecommendations(data.content)
+    const actions = parseActions(data.content)
 
-    // Ensure we have a valid response object
-    const responseObj: AgentResponse = {
-      id: crypto.randomUUID(),
-      content: agentResponse.content || 'No response content',
-      role: 'assistant',
-      timestamp: new Date().toISOString(),
+    return {
+      hasContent: true,
       metadata: {
-        tokenRecommendations,
-        actions,
-        friendActivities,
-        referrals: []
+        tokenRecommendations: recommendations,
+        actions
       }
     }
 
-    // Try to get referrals if we have a userId
-    if (validatedRequest.userId) {
-      try {
-        responseObj.metadata.referrals = await getReferrals(validatedRequest.userId)
-      } catch (error) {
-        logger.error('Error fetching referrals:', error)
-      }
-    }
-
-    // Log the final response for debugging
-    logger.info('Final response:', {
-      hasContent: !!responseObj.content,
-      recommendationsCount: responseObj.metadata.tokenRecommendations.length,
-      actionsCount: responseObj.metadata.actions.length,
-      friendActivitiesCount: responseObj.metadata.friendActivities.length,
-      referralsCount: responseObj.metadata.referrals.length
-    })
-
-    // Validate the response against our schema
-    return agentResponseSchema.parse(responseObj)
   } catch (error) {
-    logger.error('Error in sendMessage:', error)
-    
-    // Return a valid error response that matches our schema
-    return agentResponseSchema.parse({
-      id: crypto.randomUUID(),
-      content: error instanceof Error ? error.message : 'Internal server error',
-      role: 'assistant',
-      timestamp: new Date().toISOString(),
+    console.error('[ERROR] Agent error:', error)
+    return {
+      hasContent: true,
       metadata: {
         tokenRecommendations: [],
-        actions: [],
-        friendActivities: [],
-        referrals: []
+        actions: []
       }
-    })
+    }
+  }
+}
+
+function parseRecommendations(content: string): any[] {
+  try {
+    const recommendations: any[] = []
+    const lines = content.split('\n')
+    
+    let currentToken: any = null
+    
+    for (const line of lines) {
+      // Match token line: "1. TokenName ($SYMBOL):"
+      if (line.match(/^\d+\.\s+([^(]+)\s+\((\$[^)]+)\):/)) {
+        // New token found
+        if (currentToken) {
+          recommendations.push(currentToken)
+        }
+        const [, name, symbol] = line.match(/^\d+\.\s+([^(]+)\s+\((\$[^)]+)\):/) || []
+        currentToken = {
+          name: name.trim(),
+          symbol: symbol?.replace('$', '').trim(),
+          description: '',
+          imageUrl: `https://placehold.co/1200x630/png?text=${symbol?.replace('$', '') || name}`,
+          price: 'Market Price'
+        }
+      } else if (currentToken && line.trim()) {
+        currentToken.description += line.trim() + ' '
+      }
+    }
+    
+    if (currentToken) {
+      recommendations.push(currentToken)
+    }
+
+    return recommendations
+  } catch (error) {
+    console.error('[ERROR] Failed to parse recommendations:', error)
+    return []
+  }
+}
+
+function parseActions(content: string): any[] {
+  try {
+    const actions: any[] = []
+    const lines = content.split('\n')
+    let inActionsSection = false
+    
+    for (const line of lines) {
+      if (line.trim() === 'Actions:') {
+        inActionsSection = true
+        continue
+      }
+      
+      if (inActionsSection && line.trim()) {
+        const [action, symbol, label] = line.split('|')
+        if (action && symbol && label) {
+          actions.push({ action: action.trim(), symbol: symbol.trim(), label: label.trim() })
+        }
+      }
+    }
+    
+    return actions
+  } catch (error) {
+    console.error('[ERROR] Failed to parse actions:', error)
+    return []
   }
 }
 
