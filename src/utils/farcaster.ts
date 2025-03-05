@@ -25,51 +25,48 @@ export class FarcasterError extends Error {
   }
 }
 
+const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com'
+
 export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
-  const baseUrl = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com/v2'
-  
   try {
-    // Ensure endpoint starts with /
-    const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
-    const url = new URL(normalizedEndpoint, baseUrl)
-    
-    const response = await fetch(url.toString(), {
+    const url = new URL(endpoint.startsWith('http') ? endpoint : `${FARCASTER_API_URL}${endpoint}`)
+    const response = await fetch(url, {
       ...options,
       headers: {
-        ...options.headers,
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        ...options.headers
       }
     })
-    
-    if (!response.ok) throw new FarcasterError(`API error: ${response.statusText}`)
-    return response.json()
-  } catch (error) {
-    if (error instanceof TypeError && error.message.includes('Invalid URL')) {
-      throw new FarcasterError(`Invalid API URL: ${baseUrl}${endpoint}`)
+
+    if (!response.ok) {
+      throw new FarcasterError(`API error: ${response.statusText}`)
     }
-    throw error
+
+    return await response.json()
+  } catch (error) {
+    logger.error('[ERROR] Farcaster request failed:', error)
+    throw new FarcasterError(error instanceof Error ? error.message : 'Unknown error')
   }
 }
 
 // Get user's following
-export async function getFarcasterFollowing(fid: string | number, limit: number = 100) {
+export async function getFarcasterFollowing(fid: string | number, limit = 100) {
   try {
     const data = await farcasterRequest(`/following?fid=${fid}&limit=${limit}`)
-    return data.result?.users || []
+    return data.following || []
   } catch (error) {
-    logger.error('Failed to get following:', error)
+    logger.error('[ERROR] Failed to get following:', error)
     throw new FarcasterError('Failed to get following')
   }
 }
 
 // Get user's casts
-export async function getFarcasterCasts(fid: string | number, limit: number = 100) {
+export async function getFarcasterCasts(fid: string | number, limit = 100) {
   try {
     const data = await farcasterRequest(`/casts?fid=${fid}&limit=${limit}`)
-    return data.result?.casts || []
+    return data.casts || []
   } catch (error) {
-    logger.error('Failed to get casts:', error)
+    logger.error('[ERROR] Failed to get casts:', error)
     throw new FarcasterError('Failed to get casts')
   }
 }

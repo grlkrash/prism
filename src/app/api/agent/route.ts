@@ -25,6 +25,11 @@ export async function POST(request: Request) {
       hasContext: !!body.context
     });
 
+    // Get base URL for API calls
+    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https'
+    const host = process.env.NEXT_PUBLIC_HOST_URL || request.headers.get('host') || 'localhost:3000'
+    const baseUrl = `${protocol}://${host}`
+
     // Get art/culture token mentions from Farcaster
     const tokenMentions = await getTokenMentions('art', 20);
     const artTokens = tokenMentions
@@ -64,7 +69,13 @@ share|SYMBOL|Share Token`
       content
     });
 
-    return NextResponse.json({ content });
+    return NextResponse.json({ 
+      content,
+      metadata: {
+        baseUrl,
+        tokenRecommendations: artTokens
+      }
+    });
   } catch (error) {
     logger.error('Error in agent route:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';

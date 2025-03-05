@@ -200,24 +200,33 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
 
     const { untrustedData } = body
     
-    // Validate required fields
-    if (!untrustedData.fid || !untrustedData.messageHash) {
-      return { isValid: false }
-    }
+    // Extract button and fid
+    const buttonIndex = untrustedData.buttonIndex || 1
+    const fid = untrustedData.fid
 
     // In development, always return valid
     if (process.env.NODE_ENV === 'development') {
       return { 
         isValid: true,
-        message: body
+        message: {
+          button: buttonIndex,
+          fid: fid?.toString() || 'test-user-123'
+        }
       }
     }
 
-    // In production, do additional validation if needed
-    // For now, we'll just do basic validation
+    // In production, validate the frame message
+    const isValidMessage = untrustedData && 
+      typeof untrustedData.buttonIndex === 'number' &&
+      untrustedData.buttonIndex >= 1 &&
+      untrustedData.buttonIndex <= 4
+
     return {
-      isValid: true,
-      message: body
+      isValid: isValidMessage,
+      message: isValidMessage ? {
+        button: buttonIndex,
+        fid: fid?.toString()
+      } : undefined
     }
   } catch (error) {
     console.error('[ERROR] Frame validation error:', error)

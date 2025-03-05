@@ -3,7 +3,8 @@ import { logger } from './logger'
 import { MBD_AI_CONFIG, isTestMode } from '@/config/mbdAi'
 
 // Remove direct API key access since we're using the proxy
-const API_URL = '/api/mbd'
+const API_URL = process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
+const API_KEY = process.env.MBD_API_KEY
 
 export interface Token {
   id: string | number
@@ -308,41 +309,29 @@ function checkRateLimit(userId: string): boolean {
 
 // Update makeMbdRequest to handle errors better
 async function makeMbdRequest<T>(endpoint: string, data: any, userId?: string): Promise<T> {
-  // Rate limit check
-  if (userId && !checkRateLimit(userId)) {
-    throw new RateLimitError('Rate limit exceeded')
+  if (!API_KEY) {
+    throw new MbdApiError('MBD API key not configured', 401)
   }
 
   try {
     const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify(data)
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new MbdApiError(
-        errorData.error?.message || 'API request failed',
-        response.status,
-        errorData.error?.code
-      )
+      throw new MbdApiError(`MBD AI request failed: ${response.status}`, response.status)
     }
 
     const result = await response.json()
-    
-    if (!result || !result.data) {
-      throw new MbdApiError('Invalid API response')
-    }
-
-    return result.data as T
+    return result as T
   } catch (error) {
-    if (error instanceof MbdApiError) {
-      throw error
-    }
-    throw new MbdApiError(error instanceof Error ? error.message : 'Unknown error')
+    logger.error('[ERROR] MBD AI request failed:', error)
+    throw error
   }
 }
 
