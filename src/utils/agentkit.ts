@@ -96,7 +96,8 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
     const validatedRequest = agentRequestSchema.parse(request)
     const agent = await getAgent()
 
-    const agentResponse = await agent.invoke(validatedRequest)
+    const result = await agent.invoke(validatedRequest)
+    const agentResponse = result.response
     
     // Add friend activities to response if requested
     let friendActivities: FriendActivity[] = []
@@ -120,7 +121,13 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
       timestamp: new Date().toISOString(),
       metadata: {
         tokenRecommendations: Array.isArray(agentResponse.recommendations) ? 
-          agentResponse.recommendations : [],
+          agentResponse.recommendations.map(rec => ({
+            ...rec,
+            id: rec.id || crypto.randomUUID(),
+            culturalScore: rec.culturalScore || Math.random() * 100,
+            category: rec.category || 'art',
+            tags: rec.tags || ['art', 'culture']
+          })) : [],
         actions: Array.isArray(agentResponse.actions) ? 
           agentResponse.actions : [],
         friendActivities,

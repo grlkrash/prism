@@ -102,63 +102,88 @@ export async function getAgent() {
 
           // Parse recommendations
           const lines = rawContent.split('\n')
+          let currentRecommendation: {
+            name?: string
+            symbol?: string
+            description?: string
+          } = {}
+
           let inRecommendationsSection = false
           let inActionsSection = false
 
           for (const line of lines) {
-            if (line.includes('Token Recommendations:')) {
+            const trimmedLine = line.trim()
+            
+            if (trimmedLine.toLowerCase().includes('token recommendations:')) {
               inRecommendationsSection = true
               continue
             }
 
-            if (line.includes('Actions:')) {
+            if (trimmedLine.toLowerCase() === 'actions:') {
               inRecommendationsSection = false
               inActionsSection = true
               continue
             }
 
-            if (inRecommendationsSection && line.match(/^\d+\./)) {
-              const match = line.match(/(\d+)\.\s+([^(]+)\s+\((\$[^)]+)\):\s+(.+)/)
-              if (match) {
-                const [_, number, name, symbol, description] = match
+            if (inRecommendationsSection && trimmedLine.match(/^\d+\./)) {
+              // If we have a previous recommendation, add it
+              if (currentRecommendation.name && currentRecommendation.symbol && currentRecommendation.description) {
                 recommendations.push({
-                  name: name.trim(),
-                  symbol: symbol.replace('$', '').trim(),
-                  description: description.trim(),
-                  culturalScore: Math.random(),
+                  name: currentRecommendation.name,
+                  symbol: currentRecommendation.symbol,
+                  description: currentRecommendation.description,
+                  culturalScore: Math.random() * 100,
                   category: 'art',
                   tags: ['art', 'culture']
                 })
               }
+
+              // Start new recommendation
+              const match = trimmedLine.match(/\d+\.\s+([^(]+)\s+\((\$[^)]+)\):\s+(.+)/)
+              if (match) {
+                const [_, name, symbol, description] = match
+                currentRecommendation = {
+                  name: name.trim(),
+                  symbol: symbol.replace('$', '').trim(),
+                  description: description.trim()
+                }
+              }
+            } else if (inRecommendationsSection && currentRecommendation.description) {
+              // Append to current description if we're in a recommendation
+              currentRecommendation.description += ' ' + trimmedLine
             }
 
-            if (inActionsSection && line.includes('|')) {
-              const [type, tokenId, label] = line.split('|')
+            if (inActionsSection && trimmedLine.includes('|')) {
+              const [type, tokenId, label] = trimmedLine.split('|').map(s => s.trim())
               if (type && tokenId && label) {
-                actions.push({
-                  type: type.trim(),
-                  tokenId: tokenId.trim(),
-                  label: label.trim()
-                })
+                actions.push({ type, tokenId, label })
               }
             }
           }
 
+          // Add the last recommendation if exists
+          if (currentRecommendation.name && currentRecommendation.symbol && currentRecommendation.description) {
+            recommendations.push({
+              name: currentRecommendation.name,
+              symbol: currentRecommendation.symbol,
+              description: currentRecommendation.description,
+              culturalScore: Math.random() * 100,
+              category: 'art',
+              tags: ['art', 'culture']
+            })
+          }
+
           return {
-            response: {
-              content: rawContent,
-              recommendations,
-              actions
-            }
+            content: rawContent,
+            recommendations,
+            actions
           }
         } catch (error) {
           console.error('Error in agent response:', error)
           return {
-            response: {
-              content: error instanceof Error ? error.message : 'Failed to process request',
-              recommendations: [],
-              actions: []
-            }
+            content: error instanceof Error ? error.message : 'Failed to process request',
+            recommendations: [],
+            actions: []
           }
         }
       }
