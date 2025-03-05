@@ -233,4 +233,3 @@ export async function validateFrameRequest(req: NextRequest): Promise<{ isValid:
     return { isValid: false }
   }
 } 
-} 
