@@ -22,7 +22,7 @@ export interface FarcasterCast {
 const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com'
 const FARCASTER_API_KEY = process.env.FARCASTER_API_KEY
 
-async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
+export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
   try {
     // Ensure endpoint starts with /v2 if not already
     const apiEndpoint = endpoint.startsWith('/v2') ? endpoint : `/v2${endpoint}`

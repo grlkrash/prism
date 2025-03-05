@@ -36,4 +36,11 @@ export class NotFoundError extends BaseError {
   constructor(message: string) {
     super(message, 'NOT_FOUND')
   }
+}
+
+export class FarcasterError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'FarcasterError'
+  }
 } 

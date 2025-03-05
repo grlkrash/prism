@@ -1,11 +1,11 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
 import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast } from '@/utils/mbdAi'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { OpenAI } from 'openai'
-import { validateFrameMessage } from '@farcaster/core'
+import getFrameMessage from '@farcaster/frame-sdk'
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -240,26 +240,15 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
     }
 
     // For production, validate messageBytes
-    if (process.env.NODE_ENV === 'production') {
-      if (!trustedData?.messageBytes) {
-        logger.error('Invalid frame request: Missing messageBytes in production')
-        return { isValid: false }
-      }
-
+    if (process.env.NODE_ENV === 'production' && trustedData?.messageBytes) {
       try {
-        const isValid = await validateFrameMessage({
-          messageBytes: trustedData.messageBytes,
-          fid: fid.toString(),
-          buttonIndex,
-          timestamp: Date.now()
-        })
-        
-        if (!isValid) {
-          logger.error('Invalid frame request: Frame message validation failed')
+        const result = await getFrameMessage(body)
+        if (!result.isValid) {
+          logger.error('Invalid frame request: Message validation failed')
           return { isValid: false }
         }
       } catch (error) {
-        logger.error('Frame message validation error:', error)
+        logger.error('Error validating frame message:', error)
         return { isValid: false }
       }
     }
@@ -268,11 +257,11 @@ async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolea
       isValid: true,
       message: {
         button: buttonIndex,
-        fid: fid.toString()
+        fid
       }
     }
   } catch (error) {
-    logger.error('Frame validation error:', error)
+    logger.error('Error validating frame request:', error)
     return { isValid: false }
   }
 } 
