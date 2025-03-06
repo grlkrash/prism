@@ -19,10 +19,30 @@ export interface FarcasterCast {
   }
 }
 
+export interface FarcasterResponse<T> {
+  data: T
+  next?: {
+    cursor?: string
+  }
+}
+
+interface FarcasterFollowing {
+  following: Array<{
+    fid: number
+    username: string
+    displayName: string
+    pfp: string
+  }>
+}
+
+interface FarcasterCasts {
+  casts: FarcasterCast[]
+}
+
 const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com'
 const FARCASTER_API_KEY = process.env.FARCASTER_API_KEY
 
-export async function farcasterRequest(endpoint: string, options: RequestInit = {}) {
+export async function farcasterRequest<T>(endpoint: string, options: RequestInit = {}): Promise<FarcasterResponse<T>> {
   try {
     // Ensure endpoint starts with /v2 if not already
     const apiEndpoint = endpoint.startsWith('/v2') ? endpoint : `/v2${endpoint}`
@@ -34,6 +54,8 @@ export async function farcasterRequest(endpoint: string, options: RequestInit = 
       throw new FarcasterError('Farcaster API key not found')
     }
 
+    logger.info(`[Farcaster] Requesting: ${url.toString()}`)
+
     const response = await fetch(url.toString(), {
       ...options,
       headers: {
@@ -44,12 +66,15 @@ export async function farcasterRequest(endpoint: string, options: RequestInit = 
     })
 
     if (!response.ok) {
-      throw new FarcasterError(`API error: ${response.statusText}`)
+      const errorText = await response.text()
+      logger.error(`[Farcaster] API error: ${response.status} ${response.statusText}`, errorText)
+      throw new FarcasterError(`API error: ${response.statusText} - ${errorText}`)
     }
 
-    return await response.json()
+    const data = await response.json()
+    return data
   } catch (error) {
-    console.error('[ERROR] Farcaster request failed:', error)
+    logger.error('[ERROR] Farcaster request failed:', error)
     throw error instanceof FarcasterError ? error : new FarcasterError(String(error))
   }
 }
@@ -57,8 +82,8 @@ export async function farcasterRequest(endpoint: string, options: RequestInit = 
 // Get user's following
 export async function getFarcasterFollowing(fid: string | number, limit = 100) {
   try {
-    const data = await farcasterRequest(`/following?fid=${fid}&limit=${limit}`)
-    return data.following || []
+    const data = await farcasterRequest<FarcasterFollowing>(`/following?fid=${fid}&limit=${limit}`)
+    return data.data.following || []
   } catch (error) {
     logger.error('[ERROR] Failed to get following:', error)
     throw new FarcasterError('Failed to get following')
@@ -68,8 +93,8 @@ export async function getFarcasterFollowing(fid: string | number, limit = 100) {
 // Get user's casts
 export async function getFarcasterCasts(fid: string | number, limit = 100) {
   try {
-    const data = await farcasterRequest(`/casts?fid=${fid}&limit=${limit}`)
-    return data.casts || []
+    const data = await farcasterRequest<FarcasterCasts>(`/casts?fid=${fid}&limit=${limit}`)
+    return data.data.casts || []
   } catch (error) {
     logger.error('[ERROR] Failed to get casts:', error)
     throw new FarcasterError('Failed to get casts')
@@ -99,12 +124,12 @@ export async function getTokenMentions(tokenName: string, limit: number = 10): P
     }
 
     // First get trending casts
-    const trendingData = await farcasterRequest('/trending-casts')
-    const artCasts = trendingData.casts || []
+    const trendingData = await farcasterRequest<FarcasterCasts>('/feed/trending')
+    const artCasts = trendingData.data.casts || []
 
     // Then search for specific token mentions
-    const searchData = await farcasterRequest(`/search-casts?q=$${tokenName}&limit=${limit}`)
-    const tokenCasts = searchData.casts || []
+    const searchData = await farcasterRequest<FarcasterCasts>(`/search?q=$${tokenName}&limit=${limit}`)
+    const tokenCasts = searchData.data.casts || []
 
     // Combine and deduplicate casts
     const allCasts = [...artCasts, ...tokenCasts]
@@ -141,27 +166,12 @@ export async function getTokenMentions(tokenName: string, limit: number = 10): P
 
   } catch (error) {
     logger.error('Failed to get token mentions:', error)
-    // Return mock data with the actual token name
-    return [
-      {
-        hash: '0x1',
-        threadHash: '0x1',
-        author: {
-          fid: 1,
-          username: 'artist',
-          displayName: 'Digital Artist',
-          pfp: 'https://example.com/pfp.jpg'
-        },
-        text: `Check out this amazing art token $${tokenName}`,
-        timestamp: Date.now(),
-        reactions: { likes: 10, recasts: 5 }
-      }
-    ]
+    throw error
   }
 }
 
 // Helper function to calculate cultural score for a cast
-function calculateCulturalScore(cast: FarcasterCast): number {
+export function calculateCulturalScore(cast: FarcasterCast): number {
   const text = cast.text.toLowerCase()
   let score = 0
 

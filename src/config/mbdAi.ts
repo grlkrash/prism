@@ -5,6 +5,22 @@ export const MBD_AI_CONFIG = {
   API_URL: process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
   WARPCAST_API_URL: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com/v2',
   
+  // Cultural Token Configuration
+  CULTURAL_TOKEN: {
+    MIN_CONTENT_SCORE: 0.7,
+    INDICATORS: {
+      CONTENT: ['art', 'culture', 'music', 'creative'],
+      SENTIMENT: ['positive', 'neutral'],
+      POPULARITY: 0.6
+    },
+    ANALYSIS: {
+      MIN_TOKENS: 10,
+      MAX_TOKENS: 500,
+      TEMPERATURE: 0.7,
+      MODEL: 'gpt-4-turbo-preview'
+    }
+  },
+
   // Headers Configuration
   getHeaders: () => {
     const headers: Record<string, string> = {
@@ -18,17 +34,11 @@ export const MBD_AI_CONFIG = {
     
     // Add API key to headers if available
     if (apiKey) {
-      // Validate API key format more flexibly
-      if (!apiKey.startsWith('mbd_live_')) {
-        logger.error('[MBD AI] Invalid API key format')
-        throw new Error('Invalid MBD API key format')
-      }
       headers['Authorization'] = `Bearer ${apiKey}`
       headers['X-API-Version'] = '2'
       logger.info('[MBD AI] API key validated and added to headers')
     } else {
       logger.warn('[MBD AI] API key not found')
-      throw new Error('MBD API key not found')
     }
     
     return headers
@@ -56,32 +66,6 @@ export const MBD_AI_CONFIG = {
     MAX_REQUESTS: 100,
     WINDOW_MS: 60 * 1000,
     RETRY_AFTER: 5000
-  },
-
-  // Cultural Token Detection
-  CULTURAL_TOKEN: {
-    MIN_CONTENT_SCORE: 0.6,
-    MIN_IMAGE_SCORE: 0.6,
-    INDICATORS: {
-      CONTENT: [
-        'art',
-        'culture',
-        'music',
-        'media',
-        'artist',
-        'creative',
-        'sound',
-        'audio',
-        'entertainment'
-      ],
-      IMAGE: [
-        'artStyle',
-        'isArtwork',
-        'hasCulturalElements',
-        'hasAudioElements',
-        'hasMediaElements'
-      ]
-    }
   },
 
   // Scoring Weights

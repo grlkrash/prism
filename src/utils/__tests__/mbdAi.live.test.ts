@@ -17,67 +17,40 @@ describe('MBD AI Live Tests', () => {
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks()
-    process.env.MBD_API_KEY = 'test-key'
+    process.env.MBD_API_KEY = 'mbd_live_test_key_123'
+    process.env.MBD_AI_API_URL = 'https://api.mbd.xyz/v2'
 
     // Setup default mock response for feeds
     ;(global.fetch as jest.Mock).mockImplementation((url) => {
-      if (url.includes('analyze/token')) {
+      if (url.includes('/feed')) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({
+          json: () => Promise.resolve({
             data: {
-              metadata: {
-                category: 'Digital Art',
-                tags: ['art', 'digital', 'culture'],
-                sentiment: 0.8,
-                popularity: 150,
-                aiScore: 0.9,
-                culturalContext: 'Contemporary digital art movement',
-                artistBio: 'Digital artist specializing in AI-generated art',
-                artStyle: 'Abstract Digital',
-                isArtwork: true,
-                hasCulturalElements: true
-              }
+              casts: [{
+                hash: '0x123',
+                text: 'Test cast',
+                author: {
+                  fid: 1,
+                  username: 'test',
+                },
+                reactions: { likes: 0, recasts: 0 },
+                timestamp: new Date().toISOString(),
+                aiAnalysis: {
+                  category: 'art',
+                  aiScore: 0.8,
+                  hasCulturalElements: true,
+                  tags: ['digital', 'creative']
+                }
+              }],
+              next: { cursor: 'next-page' }
             }
           })
         })
       }
       return Promise.resolve({
         ok: true,
-        json: async () => ({
-          data: {
-            casts: [
-              {
-                hash: '0x123',
-                author: {
-                  fid: 1,
-                  username: 'test',
-                  displayName: 'Test User',
-                  pfp: 'https://example.com/pfp.jpg'
-                },
-                text: 'Test cultural token\n#art #digital\n$TEST',
-                timestamp: '2024-03-20T12:00:00Z',
-                reactions: {
-                  likes: 10,
-                  recasts: 5
-                },
-                aiAnalysis: {
-                  category: 'art',
-                  sentiment: 0.8,
-                  popularity: 0.7,
-                  aiScore: 0.85,
-                  culturalContext: 'Digital Art Movement',
-                  artStyle: 'Digital Abstract',
-                  isArtwork: true,
-                  hasCulturalElements: true
-                }
-              }
-            ],
-            next: {
-              cursor: 'next-page'
-            }
-          }
-        })
+        json: () => Promise.resolve({ data: {} })
       })
     })
   })

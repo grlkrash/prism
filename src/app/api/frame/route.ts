@@ -1,72 +1,19 @@
 import { NextRequest } from 'next/server'
 import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
-import { analyzeToken, getPersonalizedFeed, type Cast, tokenDatabase, validateFrameRequest } from '@/utils/mbdAi'
+import { analyzeToken, tokenDatabase } from '@/utils/mbdAi'
+import { validateFrameRequest } from '@/utils/frame'
+import { getTokenMentions, type FarcasterCast, calculateCulturalScore } from '@/utils/farcaster'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 import { OpenAI } from 'openai'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { FEATURE_FLAGS } from '@/utils/feature-flags'
-import { Token } from '@/types/token'
 
 // Types for MBD AI responses
-interface BaseCast {
-  hash: string
-  threadHash?: string
-  parentHash?: string
-  author: {
-    fid: number
-    username: string
-    displayName?: string
-    pfp?: string
-    bio?: string
-  }
-  text: string
-  reactions: {
-    likes: number
-    recasts: number
-  }
-}
-
-interface MbdCast extends BaseCast {
-  timestamp: number
-}
-
-interface FeedResponse {
-  casts: Cast[]
-  next?: {
-    cursor?: string
-  }
-}
-
-interface MbdApiResponse<T> {
-  data: T
-  status: number
-  success: boolean
-}
-
-interface EnhancedCast extends BaseCast {
-  name: string
-  symbol: string
-  description: string
-  price: string
-  timestamp: number
-  aiAnalysis?: {
-    category?: string
-    aiScore?: number
-    hasCulturalElements?: boolean
-    tags?: string[]
-    gptAnalysis?: string
-  }
-}
-
-type CombinedToken = EnhancedCast | {
+interface MbdCast {
   hash: string
   text: string
-  name: string
-  symbol: string
-  description: string
-  price: string
   author: {
     fid: number
     username: string
@@ -77,12 +24,24 @@ type CombinedToken = EnhancedCast | {
     recasts: number
   }
   timestamp: string
-  aiAnalysis: {
+  aiAnalysis?: {
+    hasCulturalElements?: boolean
     category?: string
     aiScore?: number
-    hasCulturalElements?: boolean
-    tags?: string[]
   }
+}
+
+interface FeedResponse {
+  casts: MbdCast[]
+  next?: {
+    cursor?: string
+  }
+}
+
+interface MbdApiResponse<T> {
+  data: T
+  status: number
+  success: boolean
 }
 
 // Initialize OpenAI client
@@ -143,16 +102,6 @@ function generateFrameHtml({
 </html>`
 }
 
-// Type guard for Token
-function isToken(obj: any): obj is Token {
-  return obj && 'id' in obj && 'name' in obj && 'symbol' in obj
-}
-
-// Type guard for MbdCast
-function isMbdCast(obj: any): obj is MbdCast {
-  return obj && 'author' in obj && 'text' in obj
-}
-
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url)
@@ -185,217 +134,134 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { isValid, message } = await validateFrameRequest(req)
-    
-    if (!isValid || !message) {
-      logger.error('Invalid frame message')
-      return new Response(generateFrameHtml({
-        postUrl: req.url,
-        errorMessage: 'Invalid frame message'
-      }), {
-        headers: { 'Content-Type': 'text/html' }
-      })
-    }
-
-    // Extract data from validated message
-    const { button: buttonIndex } = message
-    const fid = message.fid
-    const buttonActions = ['discover', 'popular', 'new', 'refresh', 'view', 'buy', 'share', 'next']
-    const selectedAction = buttonActions[buttonIndex - 1] || 'discover'
-    
-    // Get recommendations from both AI agent and MBD AI
-    const [agentResults, mbdResults] = await Promise.allSettled([
-      FEATURE_FLAGS.ENABLE_AGENT_CHAT 
-        ? sendMessage({
-            message: 'Recommend cultural tokens for discovery',
-            userId: fid?.toString() || 'anonymous',
-            context: { 
-              view: 'feed',
-              action: selectedAction
-            }
-          }).catch(error => {
-            logger.error('Agent chat error:', error)
-            return null
-          })
-        : Promise.reject('Agent chat disabled'),
-      getPersonalizedFeed().catch(error => {
-        logger.error('Feed error:', error)
-        return null
-      })
-    ])
-
-    let combinedTokens = []
-
-    // Process AI agent results
-    if (FEATURE_FLAGS.ENABLE_AGENT_CHAT && agentResults.status === 'fulfilled' && agentResults.value?.recommendations) {
-      combinedTokens.push(...agentResults.value.recommendations.map(rec => ({
-        hash: rec.symbol,
-        text: rec.description,
-        name: rec.name,
-        symbol: rec.symbol,
-        description: rec.description,
-        price: '0.001', // Example price, should be fetched from price feed
-        author: {
-          fid: 1,
-          username: rec.name,
-          pfp: undefined
-        },
-        reactions: { likes: 0, recasts: 0 },
-        timestamp: new Date().toISOString(),
-        aiAnalysis: {
-          category: rec.category,
-          aiScore: rec.culturalScore,
-          hasCulturalElements: true,
-          tags: rec.tags
-        }
-      })))
-    }
-
-    // Process MBD AI results
-    if (mbdResults.status === 'fulfilled' && mbdResults.value?.data?.casts) {
-      const enhancedCasts = await Promise.all(
-        mbdResults.value.data.casts.map(async (cast: Cast): Promise<EnhancedCast> => {
-          try {
-            const analysis = await openai.chat.completions.create({
-              model: "gpt-4",
-              messages: [
-                {
-                  role: "system",
-                  content: "You are an expert in analyzing cultural tokens and art content. Provide a brief, engaging analysis focusing on cultural and artistic significance."
-                },
-                {
-                  role: "user",
-                  content: `Analyze this content for cultural significance: ${cast.text}`
-                }
-              ],
-              temperature: 0.7,
-              max_tokens: 150
-            })
-
-            // Extract token details from cast text
-            const tokenMatch = cast.text.match(/\$([A-Z]+)/)
-            const symbol = tokenMatch ? tokenMatch[1] : 'TOKEN'
-            
-            return {
-              hash: cast.hash,
-              threadHash: cast.threadHash,
-              parentHash: cast.parentHash,
-              author: cast.author,
-              text: cast.text,
-              timestamp: new Date(cast.timestamp).getTime(),
-              reactions: cast.reactions,
-              name: cast.author.username || 'Unknown Token',
-              symbol,
-              description: cast.text,
-              price: '0.001',
-              aiAnalysis: {
-                gptAnalysis: analysis.choices[0]?.message?.content || '',
-                tags: analysis.choices[0]?.message?.content
-                  ?.toLowerCase()
-                  .match(/#\w+/g)
-                  ?.map(tag => tag.slice(1)) || [],
-                aiScore: 0.5,
-                hasCulturalElements: true
-              }
-            }
-          } catch (error) {
-            logger.error('Error analyzing cast with GPT:', error)
-            return {
-              hash: cast.hash,
-              threadHash: cast.threadHash,
-              parentHash: cast.parentHash,
-              author: cast.author,
-              text: cast.text,
-              timestamp: new Date(cast.timestamp).getTime(),
-              reactions: cast.reactions,
-              name: cast.author.username || 'Unknown Token',
-              symbol: 'TOKEN',
-              description: cast.text,
-              price: '0.001',
-              aiAnalysis: {
-                aiScore: 0.5,
-                hasCulturalElements: true
-              }
-            }
+    // 1. Validate frame request
+    const validationResult = await validateFrameRequest(req)
+    if (!validationResult.isValid || !validationResult.message) {
+      return new Response(
+        generateFrameHtml({
+          postUrl: req.url,
+          errorMessage: validationResult.error || 'Invalid frame request'
+        }),
+        {
+          headers: {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store'
           }
-        })
+        }
       )
-
-      combinedTokens.push(...enhancedCasts)
     }
 
-    // Sort tokens by AI score and social engagement
-    combinedTokens.sort((a: CombinedToken, b: CombinedToken) => {
-      const scoreA = ((a.aiAnalysis?.aiScore || 0) * 0.7) + 
-        ((a.reactions?.likes || 0) + (a.reactions?.recasts || 0) * 2) * 0.3
-      const scoreB = ((b.aiAnalysis?.aiScore || 0) * 0.7) + 
-        ((b.reactions?.likes || 0) + (b.reactions?.recasts || 0) * 2) * 0.3
-      return scoreB - scoreA
-    })
-
-    // Handle button actions
-    let selectedToken
-    let currentIndex = 0
-
-    switch (selectedAction) {
-      case 'discover':
-        selectedToken = combinedTokens[0]
-        break
-      case 'popular':
-        selectedToken = combinedTokens.sort((a, b) => 
-          ((b.reactions?.likes || 0) + (b.reactions?.recasts || 0)) - 
-          ((a.reactions?.likes || 0) + (a.reactions?.recasts || 0))
-        )[0]
-        break
-      case 'new':
-        selectedToken = combinedTokens.sort((a, b) => 
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        )[0]
-        break
-      case 'next':
-        // Get current token from state or use first token
-        const currentHash = message.inputText // Assuming we store current hash in inputText
-        currentIndex = currentHash ? 
-          combinedTokens.findIndex(t => t.hash === currentHash) : -1
-        selectedToken = combinedTokens[(currentIndex + 1) % combinedTokens.length] || combinedTokens[0]
-        break
-      default:
-        selectedToken = combinedTokens[0]
+    const { button, fid } = validationResult.message
+    
+    // 2. Get token mentions from Farcaster
+    let tokenMentions: FarcasterCast[]
+    try {
+      tokenMentions = await getTokenMentions('art', 10)
+    } catch (error) {
+      logger.error('Failed to fetch token mentions:', error)
+      return new Response(
+        generateFrameHtml({
+          postUrl: req.url,
+          errorMessage: 'Failed to fetch cultural tokens'
+        }),
+        {
+          headers: {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store'
+          }
+        }
+      )
+    }
+    
+    // Select a random token from mentions
+    const selectedCast = tokenMentions[Math.floor(Math.random() * tokenMentions.length)]
+    
+    if (!selectedCast) {
+      return new Response(
+        generateFrameHtml({
+          postUrl: req.url,
+          errorMessage: 'No cultural tokens found'
+        }),
+        {
+          headers: {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store'
+          }
+        }
+      )
     }
 
-    // Use fallback token if no recommendations available
-    if (!selectedToken) {
-      selectedToken = tokenDatabase[0]
+    // Extract token symbol from cast text
+    const tokenSymbol = selectedCast.text.match(/\$([A-Z]+)/)?.[1] || 'ART'
+    
+    // 3. Analyze token with OpenAI
+    let aiAnalysis: string
+    let category: string
+    try {
+      const analysis = await openai.chat.completions.create({
+        model: 'gpt-4-turbo-preview',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert in cultural tokens and art. Analyze the given content and provide insights about its cultural significance.'
+          },
+          {
+            role: 'user',
+            content: `Analyze this token mention: ${selectedCast.text}\n\nProvide a brief analysis of its cultural significance and categorize it (e.g., Art, Music, Film, etc).`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 150
+      })
+
+      aiAnalysis = analysis.choices[0].message.content || ''
+      category = aiAnalysis.match(/Category:\s*([^\.]+)/i)?.[1] || 'Art'
+    } catch (error) {
+      logger.error('Failed to analyze token with OpenAI:', error)
+      aiAnalysis = 'Analysis unavailable'
+      category = 'Art'
+    }
+    
+    // 4. Construct token object and return response
+    const token = {
+      name: `${category} Token`,
+      symbol: tokenSymbol,
+      description: selectedCast.text,
+      price: '0.001',
+      reactions: selectedCast.reactions,
+      aiAnalysis: {
+        category,
+        aiScore: calculateCulturalScore(selectedCast),
+        gptAnalysis: aiAnalysis
+      }
     }
 
-    // Generate frame response
     return new Response(
       generateFrameHtml({
-        postUrl: process.env.NEXT_PUBLIC_APP_URL + '/api/frame',
-        token: selectedToken,
-        imageUrl: isToken(selectedToken) ? selectedToken.imageUrl : 
-                 isMbdCast(selectedToken) ? selectedToken.author?.pfp : 
-                 'https://placehold.co/1200x630/png',
-        recommendations: combinedTokens,
-        errorMessage: combinedTokens.length === 0 ? 'No recommendations available' : undefined
+        postUrl: req.url,
+        token,
+        imageUrl: selectedCast.author.pfp || 'https://placehold.co/1200x630/png'
       }),
       {
         headers: {
           'Content-Type': 'text/html',
-          'Cache-Control': 'no-cache, no-store, must-revalidate'
+          'Cache-Control': 'no-store'
         }
       }
     )
+
   } catch (error) {
-    logger.error('Error in frame route:', error)
+    logger.error('[ERROR] Frame request failed:', error)
     return new Response(
       generateFrameHtml({
         postUrl: req.url,
-        errorMessage: 'Something went wrong. Please try again later.',
-        imageUrl: 'https://placehold.co/1200x630/png?text=Error'
-      }), 
+        errorMessage: 'Failed to process request'
+      }),
       {
-        headers: { 'Content-Type': 'text/html' }
+        headers: {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-store'
+        }
       }
     )
   }
