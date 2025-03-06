@@ -20,27 +20,29 @@ export async function GET(req: NextRequest) {
     const apiKey = process.env.MBD_API_KEY
     const apiUrl = process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
     
+    // Validate API key format
+    if (!apiKey || !apiKey.startsWith('mbd-')) {
+      console.error('[MBD API] Invalid API key format')
+      return NextResponse.json({ 
+        error: 'API configuration error', 
+        details: 'Invalid API key format'
+      }, { status: 500 })
+    }
+
     // Enhanced logging for API configuration
     console.log('[MBD API] Request details:', {
       endpoint,
       url: apiUrl + endpoint,
-      hasApiKey: !!apiKey,
-      apiKeyLength: apiKey?.length,
+      hasApiKey: true,
+      apiKeyLength: apiKey.length,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Authorization': apiKey ? 'Bearer [REDACTED]' : 'MISSING',
-        'User-Agent': 'Prism/1.0'
+        'Authorization': 'Bearer [REDACTED]',
+        'User-Agent': 'Prism/1.0',
+        'X-API-Version': '2'
       }
     })
-
-    if (!apiKey) {
-      console.error('[MBD API] API key missing')
-      return NextResponse.json({ 
-        error: 'API configuration error', 
-        details: 'API key is not configured' 
-      }, { status: 500 })
-    }
 
     // Ensure proper endpoint format
     const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
@@ -70,7 +72,8 @@ export async function GET(req: NextRequest) {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
-      'User-Agent': 'Prism/1.0'
+      'User-Agent': 'Prism/1.0',
+      'X-API-Version': '2'
     }
 
     console.log('[MBD API] Request headers:', {
@@ -98,8 +101,8 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ 
           error: 'Authentication failed', 
           details: 'Invalid or expired API key',
-          apiKeyLength: apiKey?.length,
-          apiKeyPrefix: apiKey?.substring(0, 4)
+          apiKeyLength: apiKey.length,
+          apiKeyPrefix: apiKey.substring(0, 4)
         }, { status: 403 })
       }
 

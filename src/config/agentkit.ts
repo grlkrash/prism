@@ -3,6 +3,7 @@ import { chatModel } from './openai'
 import { SystemMessage, HumanMessage } from '@langchain/core/messages'
 import { RunnableSequence } from '@langchain/core/runnables'
 import { ChatPromptTemplate } from "@langchain/core/prompts"
+import { logger } from '@/utils/logger'
 
 export const agentRequestSchema = z.object({
   message: z.string(),
@@ -11,184 +12,162 @@ export const agentRequestSchema = z.object({
   threadId: z.string().optional()
 })
 
+export type AgentRequest = z.infer<typeof agentRequestSchema>
+
 export const agentResponseSchema = z.object({
-  id: z.string(),
-  content: z.string(),
-  role: z.string(),
-  timestamp: z.string(),
-  metadata: z.object({
-    tokenRecommendations: z.array(z.any()),
-    actions: z.array(z.any()),
-    friendActivities: z.array(z.object({
-      userId: z.string(),
-      username: z.string(),
-      action: z.enum(['buy', 'sell', 'share']),
-      tokenId: z.string(),
-      timestamp: z.string()
-    })),
-    referrals: z.array(z.object({
-      referrerId: z.string(),
-      referredId: z.string(),
-      tokenId: z.string(),
-      timestamp: z.string(),
-      reward: z.number()
-    }))
-  })
+  response: z.string(),
+  recommendations: z.array(z.object({
+    name: z.string(),
+    symbol: z.string(),
+    description: z.string(),
+    culturalScore: z.number().optional(),
+    category: z.string().optional(),
+    tags: z.array(z.string()).optional()
+  })).optional(),
+  actions: z.array(z.object({
+    type: z.string(),
+    tokenId: z.string(),
+    label: z.string()
+  })).optional()
 })
 
-export type AgentRequest = z.infer<typeof agentRequestSchema>
 export type AgentResponse = z.infer<typeof agentResponseSchema>
 
-const SYSTEM_PROMPT = `You are an AI assistant specializing in cultural tokens and NFTs. Your role is to:
-1. Recommend ERC-20 tokens related to art, music, and culture
-2. Analyze token potential and cultural impact
-3. Provide insights on token utility and community engagement
-4. Format recommendations as: "1. TokenName ($SYMBOL): Description"
-5. Include Actions section with format: "type|tokenId|label"
+export const AGENT_CONFIG = {
+  model: chatModel,
+  systemMessage: new SystemMessage(`You are an expert in cultural tokens and digital art.
+Your role is to help users discover and understand cultural tokens.
+Focus on tokens that represent art, music, media, and cultural experiences.
 
-Example response structure:
+When recommending tokens:
+1. Prioritize tokens with strong cultural or artistic significance
+2. Consider the user's interests and context
+3. Explain the cultural and artistic value
+4. Suggest relevant actions (view, buy, share)
+
+Format your responses as:
 Token Recommendations:
-1. TokenName ($SYMBOL): Description of the token and its cultural significance.
+1. TokenName ($SYMBOL): Description focused on cultural and artistic significance
 
 Actions:
 view|SYMBOL|View Details
 buy|SYMBOL|Buy Now
-share|SYMBOL|Share Token`
-
-export const AGENT_CONFIG = {
-  model: chatModel,
-  systemMessage: new SystemMessage(SYSTEM_PROMPT)
+share|SYMBOL|Share Token`),
+  maxTokens: 1000,
+  temperature: 0.7
 }
 
 export async function getAgent() {
-  const chain = RunnableSequence.from([
-    {
-      question: (input: AgentRequest) => input.message,
-      systemMessage: () => AGENT_CONFIG.systemMessage,
-      threadId: (input: AgentRequest) => input.threadId || `cultural-agent-${crypto.randomUUID()}`
-    },
-    {
-      response: async (input: { question: string; systemMessage: SystemMessage; threadId: string }) => {
-        try {
-          const response = await AGENT_CONFIG.model.invoke([
-            input.systemMessage,
-            new HumanMessage(input.question)
-          ], {
-            configurable: {
-              thread_id: input.threadId
-            }
-          })
+  try {
+    const chain = RunnableSequence.from([
+      {
+        question: (input: AgentRequest) => input.message,
+        systemMessage: () => AGENT_CONFIG.systemMessage,
+        threadId: (input: AgentRequest) => input.threadId || `cultural-agent-${crypto.randomUUID()}`
+      },
+      {
+        response: async (input: { question: string; systemMessage: SystemMessage; threadId: string }) => {
+          try {
+            const response = await AGENT_CONFIG.model.invoke([
+              input.systemMessage,
+              new HumanMessage(input.question)
+            ], {
+              configurable: {
+                thread_id: input.threadId
+              }
+            })
 
-          const rawContent = response.content
-          if (!rawContent || typeof rawContent !== 'string') {
-            throw new Error('Invalid response from OpenAI')
-          }
-
-          // Extract recommendations and actions from the text response
-          const recommendations: Array<{
-            name: string
-            symbol: string
-            description: string
-            culturalScore?: number
-            category?: string
-            tags?: string[]
-          }> = []
-
-          const actions: Array<{
-            type: string
-            tokenId: string
-            label: string
-          }> = []
-
-          // Parse recommendations
-          const lines = rawContent.split('\n')
-          let currentRecommendation: {
-            name?: string
-            symbol?: string
-            description?: string
-          } = {}
-
-          let inRecommendationsSection = false
-          let inActionsSection = false
-
-          for (const line of lines) {
-            const trimmedLine = line.trim()
-            
-            if (trimmedLine.toLowerCase().includes('token recommendations:')) {
-              inRecommendationsSection = true
-              continue
+            const rawContent = response.content
+            if (!rawContent || typeof rawContent !== 'string') {
+              throw new Error('Invalid response from OpenAI')
             }
 
-            if (trimmedLine.toLowerCase() === 'actions:') {
-              inRecommendationsSection = false
-              inActionsSection = true
-              continue
-            }
+            logger.info('Agent response:', {
+              threadId: input.threadId,
+              hasContent: true,
+              contentLength: rawContent.length
+            })
 
-            if (inRecommendationsSection && trimmedLine.match(/^\d+\./)) {
-              // If we have a previous recommendation, add it
-              if (currentRecommendation.name && currentRecommendation.symbol && currentRecommendation.description) {
-                recommendations.push({
-                  name: currentRecommendation.name,
-                  symbol: currentRecommendation.symbol,
-                  description: currentRecommendation.description,
-                  culturalScore: Math.random() * 100,
-                  category: 'art',
-                  tags: ['art', 'culture']
-                })
+            // Extract recommendations and actions from the text response
+            const recommendations: Array<{
+              name: string
+              symbol: string
+              description: string
+              culturalScore?: number
+              category?: string
+              tags?: string[]
+            }> = []
+
+            const actions: Array<{
+              type: string
+              tokenId: string
+              label: string
+            }> = []
+
+            // Parse recommendations
+            const lines = rawContent.split('\n')
+            let currentRecommendation: {
+              name?: string
+              symbol?: string
+              description?: string
+            } = {}
+
+            let inRecommendationsSection = false
+            let inActionsSection = false
+
+            for (const line of lines) {
+              if (line.startsWith('Token Recommendations:')) {
+                inRecommendationsSection = true
+                inActionsSection = false
+                continue
               }
 
-              // Start new recommendation
-              const match = trimmedLine.match(/\d+\.\s+([^(]+)\s+\((\$[^)]+)\):\s+(.+)/)
-              if (match) {
-                const [_, name, symbol, description] = match
-                currentRecommendation = {
-                  name: name.trim(),
-                  symbol: symbol.replace('$', '').trim(),
-                  description: description.trim()
+              if (line.startsWith('Actions:')) {
+                inRecommendationsSection = false
+                inActionsSection = true
+                continue
+              }
+
+              if (inRecommendationsSection) {
+                const match = line.match(/(\d+)\.\s+(.+?)\s+\((\$[A-Z]+)\):\s+(.+)/)
+                if (match) {
+                  recommendations.push({
+                    name: match[2],
+                    symbol: match[3].substring(1),
+                    description: match[4],
+                    culturalScore: 0.8
+                  })
                 }
               }
-            } else if (inRecommendationsSection && currentRecommendation.description) {
-              // Append to current description if we're in a recommendation
-              currentRecommendation.description += ' ' + trimmedLine
-            }
 
-            if (inActionsSection && trimmedLine.includes('|')) {
-              const [type, tokenId, label] = trimmedLine.split('|').map(s => s.trim())
-              if (type && tokenId && label) {
-                actions.push({ type, tokenId, label })
+              if (inActionsSection) {
+                const parts = line.split('|')
+                if (parts.length === 3) {
+                  actions.push({
+                    type: parts[0],
+                    tokenId: parts[1],
+                    label: parts[2]
+                  })
+                }
               }
             }
-          }
 
-          // Add the last recommendation if exists
-          if (currentRecommendation.name && currentRecommendation.symbol && currentRecommendation.description) {
-            recommendations.push({
-              name: currentRecommendation.name,
-              symbol: currentRecommendation.symbol,
-              description: currentRecommendation.description,
-              culturalScore: Math.random() * 100,
-              category: 'art',
-              tags: ['art', 'culture']
-            })
-          }
-
-          return {
-            content: rawContent,
-            recommendations,
-            actions
-          }
-        } catch (error) {
-          console.error('Error in agent response:', error)
-          return {
-            content: error instanceof Error ? error.message : 'Failed to process request',
-            recommendations: [],
-            actions: []
+            return {
+              response: rawContent,
+              recommendations,
+              actions
+            }
+          } catch (error) {
+            logger.error('Error in agent response:', error)
+            throw error
           }
         }
       }
-    }
-  ])
-  
-  return chain
+    ])
+
+    return chain
+  } catch (error) {
+    logger.error('Error creating agent:', error)
+    throw error
+  }
 }

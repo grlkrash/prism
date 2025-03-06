@@ -9,6 +9,12 @@ import { Card } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { AgentResponse } from '@/config/agentkit'
+
+interface Message extends AgentResponse {
+  role: 'user' | 'assistant'
+  timestamp: number
+}
 
 export function AgentChat() {
   const { messages, isLoading, error, sendMessage } = useAgent()
@@ -28,7 +34,7 @@ export function AgentChat() {
         <div className="space-y-4">
           {messages.map((message) => (
             <div
-              key={message.id}
+              key={`${message.role}-${message.timestamp}`}
               className={cn(
                 'flex gap-3',
                 message.role === 'assistant' ? 'justify-start' : 'justify-end'
@@ -48,21 +54,19 @@ export function AgentChat() {
                     : 'bg-primary text-primary-foreground'
                 )}
               >
-                <p className="text-sm">{message.content}</p>
-                {message.metadata?.tokenRecommendations && (
+                <p className="text-sm">{message.response}</p>
+                {message.recommendations && message.recommendations.length > 0 && (
                   <div className="mt-4 space-y-2">
-                    {message.metadata.tokenRecommendations.map((token) => (
-                      <Card key={token.id} className="p-2">
+                    {message.recommendations.map((token) => (
+                      <Card key={`${token.symbol}-${token.name}`} className="p-2">
                         <div className="flex items-center gap-2">
-                          <img
-                            src={token.imageUrl}
-                            alt={token.name}
-                            className="w-12 h-12 rounded"
-                          />
+                          <div className="w-12 h-12 rounded bg-muted flex items-center justify-center">
+                            {token.symbol}
+                          </div>
                           <div>
                             <h4 className="font-medium">{token.name}</h4>
                             <p className="text-sm text-muted-foreground">
-                              {token.price}
+                              {token.description}
                             </p>
                             {token.culturalScore && (
                               <p className="text-xs text-muted-foreground">
@@ -72,6 +76,23 @@ export function AgentChat() {
                           </div>
                         </div>
                       </Card>
+                    ))}
+                  </div>
+                )}
+                {message.actions && message.actions.length > 0 && (
+                  <div className="mt-2 flex gap-2">
+                    {message.actions.map((action) => (
+                      <Button
+                        key={`${action.type}-${action.tokenId}`}
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          // Action handlers will be implemented when feature flag is enabled
+                          console.log('Action:', action)
+                        }}
+                      >
+                        {action.label}
+                      </Button>
                     ))}
                   </div>
                 )}

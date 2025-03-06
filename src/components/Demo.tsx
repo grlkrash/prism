@@ -42,14 +42,16 @@ export default function Demo() {
   useEffect(() => {
     const initializeFrame = async () => {
       try {
+        // First ensure SDK is ready
         await sdk.actions.ready()
+        // Then get context
         const frameContext = await sdk.context
         setContext(frameContext)
         setIsSDKLoaded(true)
         logger.info('Frame initialized')
       } catch (error) {
-        logger.error('Error initializing frame:', error)
-        setError('Failed to initialize frame')
+        logger.error('Frame initialization error:', error)
+        setError(error instanceof Error ? error.message : 'Failed to initialize frame')
       }
     }
 
@@ -57,6 +59,19 @@ export default function Demo() {
       initializeFrame()
     }
   }, [isSDKLoaded])
+
+  // Add error boundary for RPC errors
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      if (event.error?.name === 'RpcResponse.InternalErrorError') {
+        logger.error('RPC Error:', event.error)
+        setError('Connection error. Please try again.')
+      }
+    }
+
+    window.addEventListener('error', handleError)
+    return () => window.removeEventListener('error', handleError)
+  }, [])
 
   // Share action
   const handleShare = useCallback((token: TokenItem) => {

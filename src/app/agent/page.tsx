@@ -1,7 +1,24 @@
+'use client'
+
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { FEATURE_FLAGS } from '@/utils/feature-flags'
 import { AgentProvider } from '@/contexts/agent-context'
-import { AgentChat } from '@/components/agent/agent-chat'
+import { AgentChat } from '@/components/experimental/agent-chat'
 
 export default function AgentPage() {
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!FEATURE_FLAGS.ENABLE_AGENT_CHAT) {
+      router.push('/')
+    }
+  }, [router])
+
+  if (!FEATURE_FLAGS.ENABLE_AGENT_CHAT) {
+    return null
+  }
+
   return (
     <main className="container mx-auto py-8">
       <div className="space-y-8">

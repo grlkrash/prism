@@ -6,6 +6,7 @@ import { MBD_AI_CONFIG } from '@/config/mbdAi'
 import { OpenAI } from 'openai'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
+import { FEATURE_FLAGS } from '@/utils/feature-flags'
 
 // Types for MBD AI responses
 interface MbdCast {
@@ -144,27 +145,23 @@ export async function POST(req: NextRequest) {
     const { buttonIndex, inputText } = frameActionBody
     const fid = validation.message.data.fid
     
-    // Process recommendations in parallel
+    // Get recommendations from both AI agent and MBD AI
     const [agentResults, mbdResults] = await Promise.allSettled([
-      // 1. Get recommendations from AI agent
-      sendMessage({
-        message: 'Please recommend cultural tokens focusing on art and creative content',
-        userId: fid.toString(),
-        context: {
-          buttonIndex,
-          inputText
-        }
-      }),
-
-      // 2. Get personalized feed from MBD AI
-      getPersonalizedFeed(fid.toString())
+      FEATURE_FLAGS.ENABLE_AGENT_CHAT 
+        ? sendMessage({
+            message: 'Recommend cultural tokens for discovery',
+            userId: fid.toString(),
+            context: { view: 'feed' }
+          })
+        : Promise.resolve(null),
+      getTrendingFeed()
     ])
 
     let combinedTokens = []
 
     // Process AI agent results
-    if (agentResults.status === 'fulfilled' && agentResults.value?.metadata?.tokenRecommendations) {
-      combinedTokens.push(...agentResults.value.metadata.tokenRecommendations)
+    if (FEATURE_FLAGS.ENABLE_AGENT_CHAT && agentResults.status === 'fulfilled' && agentResults.value?.recommendations) {
+      combinedTokens.push(...agentResults.value.recommendations)
     }
 
     // Process MBD AI results

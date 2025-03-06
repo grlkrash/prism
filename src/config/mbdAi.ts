@@ -7,21 +7,24 @@ export const MBD_AI_CONFIG = {
   getHeaders: () => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'User-Agent': 'Prism/1.0'
     }
     
     // Get API key from environment variables
-    const apiKey = process.env.MBD_API_KEY || process.env.NEXT_PUBLIC_MBD_API_KEY
+    const apiKey = process.env.MBD_API_KEY
     
     // Add API key to headers if available
     if (apiKey) {
+      if (!apiKey.startsWith('mbd-')) {
+        console.error('[MBD AI] Invalid API key format')
+        throw new Error('Invalid MBD API key format')
+      }
       headers['Authorization'] = `Bearer ${apiKey}`
-    } else if (process.env.NODE_ENV === 'production') {
-      console.error('[MBD AI] API key not found in environment variables')
-      throw new Error('MBD API key not found')
+      headers['X-API-Version'] = '2'
     } else {
-      // Use test key in development
-      headers['Authorization'] = 'Bearer test-key'
+      console.error('[MBD AI] API key not found')
+      throw new Error('MBD API key not found')
     }
     
     return headers

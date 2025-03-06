@@ -1,59 +1,73 @@
 'use client'
 
-import { useEffect, useCallback, useState, useRef } from 'react'
-import { getTrendingFeed, type Cast as MbdCast } from '@/utils/mbdAi'
+import { useEffect, useState } from 'react'
+import { getTrendingFeed } from '@/utils/mbdAi'
 import { TokenGallery } from '@/components/TokenGallery'
-import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { logger } from '@/utils/logger'
+import { sendMessage } from '@/utils/agentkit'
 import type { TokenItem } from '@/types/token'
+import type { Cast } from '@/utils/mbdAi'
 
 interface FeedProps {
   fid?: number
-  onShare: (token: TokenItem) => void
-  onBuy: (token: TokenItem) => void
+  onShare?: (token: TokenItem) => void
+  onBuy?: (token: TokenItem) => void
 }
 
 export function Feed({ fid, onShare, onBuy }: FeedProps) {
   const [tokens, setTokens] = useState<TokenItem[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
-  const [cursor, setCursor] = useState<string | undefined>()
+  const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const feedEndRef = useRef<HTMLDivElement>(null)
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(true)
 
-  // Load initial tokens
   useEffect(() => {
     const loadInitialTokens = async () => {
       try {
         setIsLoading(true)
         setError(null)
-        const response = await getTrendingFeed()
-        if (response?.casts) {
-          const newTokens = response.casts.map((cast: MbdCast) => ({
-            id: cast.hash,
-            name: cast.text.split('\n')[0] || 'Untitled Token',
-            symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
-            description: cast.text,
-            price: 0.001,
-            image: cast.author.pfp,
-            category: 'cultural',
-            social: {
-              website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
-            },
-            metadata: {
-              authorFid: String(cast.author.fid),
-              authorUsername: cast.author.username,
-              timestamp: Number(cast.timestamp),
-              likes: cast.reactions.likes,
-              recasts: cast.reactions.recasts
+
+        // Get agent recommendations if fid exists
+        if (fid) {
+          try {
+            const agentResponse = await sendMessage({
+              message: 'Recommend cultural tokens for discovery',
+              userId: fid.toString(),
+              context: { view: 'feed' }
+            })
+
+            if (agentResponse?.recommendations?.length) {
+              logger.info('Agent recommendations received:', agentResponse.recommendations.length)
             }
-          }))
-          setTokens(newTokens)
-          setCursor(response.next?.cursor)
-          setHasMore(!!response.next?.cursor)
+          } catch (agentError) {
+            logger.warn('Agent recommendations failed:', agentError)
+            // Continue with trending feed even if agent fails
+          }
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load tokens')
-        console.error('Error loading initial tokens:', err)
+
+        // Get trending feed
+        const feed = await getTrendingFeed()
+        
+        if (!feed?.casts?.length) {
+          throw new Error('No tokens found in feed')
+        }
+
+        const feedTokens = feed.casts.map((cast: Cast) => ({
+          id: cast.hash,
+          name: cast.author.username,
+          symbol: cast.aiAnalysis?.category || 'ART',
+          description: cast.text,
+          imageUrl: cast.author.pfp || 'https://placehold.co/300x300.png',
+          price: '0.1',
+          culturalScore: cast.aiAnalysis?.aiScore || 0.8
+        }))
+
+        setTokens(feedTokens)
+        setCursor(feed.next?.cursor || null)
+        setHasMore(!!feed.next?.cursor)
+      } catch (error) {
+        logger.error('Error loading initial tokens:', error)
+        setError(error instanceof Error ? error.message : 'Failed to load tokens')
       } finally {
         setIsLoading(false)
       }
@@ -62,79 +76,64 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
     loadInitialTokens()
   }, [fid])
 
-  // Load more tokens
-  const loadMore = useCallback(async () => {
-    if (isLoading || !hasMore || !cursor) return
-    
+  const loadMore = async () => {
+    if (!cursor || !hasMore || isLoading) return
+
     try {
       setIsLoading(true)
-      setError(null)
-      const response = await getTrendingFeed(cursor)
-      if (response?.casts) {
-        const newTokens = response.casts.map((cast: MbdCast) => ({
-          id: cast.hash,
-          name: cast.text.split('\n')[0] || 'Untitled Token',
-          symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
-          description: cast.text,
-          price: 0.001,
-          image: cast.author.pfp,
-          category: 'cultural',
-          social: {
-            website: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
-          },
-          metadata: {
-            authorFid: String(cast.author.fid),
-            authorUsername: cast.author.username,
-            timestamp: Number(cast.timestamp),
-            likes: cast.reactions.likes,
-            recasts: cast.reactions.recasts
-          }
-        }))
-        setTokens(prev => [...prev, ...newTokens])
-        setCursor(response.next?.cursor)
-        setHasMore(!!response.next?.cursor)
+      const feed = await getTrendingFeed(cursor)
+      
+      if (!feed?.casts) {
+        throw new Error('Invalid feed response')
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load more tokens')
-      console.error('Error loading more tokens:', err)
+
+      const newTokens = feed.casts.map((cast: Cast) => ({
+        id: cast.hash,
+        name: cast.author.username,
+        symbol: cast.aiAnalysis?.category || 'ART',
+        description: cast.text,
+        imageUrl: cast.author.pfp || 'https://placehold.co/300x300.png',
+        price: '0.1',
+        culturalScore: cast.aiAnalysis?.aiScore || 0.8
+      }))
+
+      setTokens(prev => [...prev, ...newTokens])
+      setCursor(feed.next?.cursor || null)
+      setHasMore(!!feed.next?.cursor)
+    } catch (error) {
+      logger.error('Error loading more tokens:', error)
+      setError(error instanceof Error ? error.message : 'Failed to load more tokens')
     } finally {
       setIsLoading(false)
     }
-  }, [cursor, hasMore, isLoading])
+  }
 
-  // Infinite scroll
-  useEffect(() => {
-    if (!feedEndRef.current || !hasMore) return
+  const handleShare = (token: TokenItem) => {
+    if (onShare) onShare(token)
+  }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          loadMore()
-        }
-      },
-      { threshold: 0.5 }
-    )
-
-    observer.observe(feedEndRef.current)
-    return () => observer.disconnect()
-  }, [hasMore, isLoading, loadMore])
+  const handleBuy = (token: TokenItem) => {
+    if (onBuy) onBuy(token)
+  }
 
   if (error) {
-    return <div className="text-red-500 text-sm">{error}</div>
+    return (
+      <div className="text-red-500 text-sm p-4">
+        {error}
+      </div>
+    )
   }
 
   return (
-    <>
-      <TokenGallery 
+    <div className="space-y-4">
+      <TokenGallery
         tokens={tokens}
-        onShare={onShare}
-        onBuy={onBuy}
         isLoading={isLoading}
         hasMore={hasMore}
         onLoadMore={loadMore}
+        onShare={handleShare}
+        onBuy={handleBuy}
       />
-      {isLoading && <LoadingSpinner />}
-      <div ref={feedEndRef} />
-    </>
+    </div>
   )
 } 

@@ -3,21 +3,25 @@
 import { createContext, useContext, useReducer, ReactNode } from 'react'
 import { AgentResponse } from '@/config/agentkit'
 
+interface Message extends AgentResponse {
+  role: 'user' | 'assistant'
+  timestamp: number
+}
+
 interface AgentState {
-  messages: AgentResponse[]
+  messages: Message[]
   isLoading: boolean
   error: string | null
   currentToken: {
-    id: string
+    symbol: string
     name: string
     description: string
-    imageUrl: string
-    price: string
+    culturalScore?: number
   } | null
 }
 
 type AgentAction =
-  | { type: 'ADD_MESSAGE'; payload: AgentResponse }
+  | { type: 'ADD_MESSAGE'; payload: Message }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'SET_CURRENT_TOKEN'; payload: AgentState['currentToken'] }
@@ -82,6 +86,16 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'SET_LOADING', payload: true })
       dispatch({ type: 'SET_ERROR', payload: null })
 
+      // Add user message
+      dispatch({
+        type: 'ADD_MESSAGE',
+        payload: {
+          role: 'user',
+          response: message,
+          timestamp: Date.now()
+        }
+      })
+
       const response = await fetch('/api/agent', {
         method: 'POST',
         headers: {
@@ -102,7 +116,16 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       }
 
       const data = await response.json()
-      dispatch({ type: 'ADD_MESSAGE', payload: data })
+      
+      // Add assistant message
+      dispatch({
+        type: 'ADD_MESSAGE',
+        payload: {
+          ...data,
+          role: 'assistant',
+          timestamp: Date.now()
+        }
+      })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred'
       dispatch({ type: 'SET_ERROR', payload: errorMessage })

@@ -32,9 +32,11 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
         }
       })
 
-      if (agentResponse?.metadata?.tokenRecommendations?.length > 0) {
+      // Safely check recommendations existence and length
+      const recommendations = agentResponse?.recommendations
+      if (recommendations && recommendations.length > 0) {
         // Convert agent recommendations to casts
-        const casts = agentResponse.metadata.tokenRecommendations.map(rec => ({
+        const casts: Cast[] = recommendations.map(rec => ({
           hash: rec.symbol.toLowerCase(),
           threadHash: '',
           author: {
@@ -48,15 +50,20 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
           reactions: { likes: 0, recasts: 0 },
           aiAnalysis: {
             category: rec.category || 'art',
-            sentiment: 1,
-            popularity: 1,
+            sentiment: 1, // Default sentiment
+            popularity: 1, // Default popularity
             aiScore: rec.culturalScore || 0.8,
-            culturalContext: rec.description,
+            culturalContext: rec.description || 'Cultural token',
+            artStyle: rec.tags?.[0],
+            isArtwork: true,
             hasCulturalElements: true
           }
         }))
 
-        return { casts }
+        return {
+          casts,
+          next: cursor ? { cursor } : undefined
+        }
       }
     } catch (agentError) {
       logger.warn('AI Agent feed failed, falling back to MBD AI:', agentError)
