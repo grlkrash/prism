@@ -116,7 +116,7 @@ export default function Demo() {
   const config = useConfig()
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [context, setContext] = useState<FrameContext | null>(null)
+  const [context, setContext] = useState<any>()
   const [ethAmount, setEthAmount] = useState<string>('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isContextOpen, setIsContextOpen] = useState(false)
@@ -143,33 +143,24 @@ export default function Demo() {
   useEffect(() => {
     const initializeFrame = async () => {
       try {
-        // Initialize SDK
-        const sdk = new sdk()
-        
         // Signal ready to the client
-        await sdk.actions.ready()
+        sdk.actions.ready()
         
-        // Get frame context
-        const context = await sdk.context.get()
-        if (!context) {
-          logger.error('No frame context found')
-          return
+        // Get frame context from untrusted data
+        const frameContext = {
+          buttonIndex: null,
+          inputText: null,
+          castId: null,
+          url: null,
+          messageHash: null,
+          timestamp: Date.now(),
+          network: 1,
+          version: 1
         }
-
-        // Set context with validated data
-        setContext({
-          buttonIndex: context.button || null,
-          inputText: context.input || null,
-          castId: context.castId || null,
-          url: context.url || null,
-          messageHash: context.messageHash || null,
-          timestamp: context.timestamp || Date.now(),
-          network: context.network || 1,
-          version: context.version || 1
-        })
         
-        logger.info('Frame context loaded:', context)
+        setContext(frameContext)
         setIsSDKLoaded(true)
+        logger.info('Frame initialized')
       } catch (error) {
         logger.error('Error initializing frame:', error)
       }

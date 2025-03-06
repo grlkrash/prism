@@ -10,7 +10,7 @@ cd prism
 
 2. Install required dependencies
 ```bash
-npm install @farcaster/frames-sdk agentkit @base-api/web3-sdk framer-motion ethers
+npm install @farcaster/frame-sdk agentkit @base-api/web3-sdk framer-motion ethers
 ```
 
 3. Set up environment variables
@@ -81,7 +81,7 @@ AGENTKIT_API_KEY=your_agentkit_key
 
 ```typescript
 // Example frame route
-import { FrameRequest, getFrameMessage } from '@farcaster/frames-sdk';
+import { FrameRequest, getFrameMessage } from '@farcaster/frame-sdk';
 
 export async function POST(req: Request) {
   const body = await req.json();

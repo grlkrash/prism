@@ -46,7 +46,7 @@ The cultural token space is growing rapidly, but discovery remains difficult. Ar
 ## Technical Requirements
 
 ### Farcaster Frame Integration ✅
-- ✅ Implement Frame UI using frames.town template
+- ✅ Implement Frame UI using @farcaster/frame-sdk
 - ✅ Create interactive gallery view for tokens
 - ✅ Add buttons for core actions (collect, share, save)
 - ✅ WagmiProvider integration for wallet interactions

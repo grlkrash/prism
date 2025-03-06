@@ -220,7 +220,7 @@
 
 ## Current Issues
 1. Farcaster Frame SDK
-   - [x] Fixed incorrect imports
+   - [x] Fixed incorrect imports (using @farcaster/frame-sdk)
    - [x] Updated client initialization
    - [x] Verified frame validation
 

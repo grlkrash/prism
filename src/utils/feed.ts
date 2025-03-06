@@ -32,9 +32,9 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
         }
       })
 
-      if (agentResponse?.recommendations?.length > 0) {
+      if (agentResponse?.metadata?.tokenRecommendations?.length > 0) {
         // Convert agent recommendations to casts
-        const casts = agentResponse.recommendations.map(rec => ({
+        const casts = agentResponse.metadata.tokenRecommendations.map(rec => ({
           hash: rec.symbol.toLowerCase(),
           threadHash: '',
           author: {
@@ -78,21 +78,8 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
           // Skip if already analyzed
           if (cast.aiAnalysis) return cast
 
-          // Convert cast to token format for analysis
-          const token: Token = {
-            id: cast.hash,
-            name: cast.text.split('\n')[0] || 'Untitled',
-            symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
-            description: cast.text,
-            imageUrl: cast.author.pfp || '',
-            artistName: cast.author.displayName || cast.author.username,
-            price: '0.001',
-            culturalScore: 0,
-            tokenType: 'ERC20'
-          }
-
-          // Analyze token
-          const analysis = await analyzeToken(token)
+          // Analyze token using its hash as ID
+          const analysis = await analyzeToken(cast.hash)
           
           return {
             ...cast,
