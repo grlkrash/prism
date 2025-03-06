@@ -20,34 +20,20 @@ import { AgentChat } from '@/components/agent/agent-chat'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 import { logger } from '@/utils/logger'
-import { getFrameMessage, validateFrameMessage } from '@farcaster/frame-sdk'
 
 // Define Frame context types based on official docs
 interface FrameContext {
-  location: {
-    type: 'cast_embed' | 'channel' | 'user' | 'link' | 'direct_cast_embed'
-    cast?: {
-      fid: number
-      hash: string
-      text: string
-      embeds?: string[]
-    }
-    channel?: {
-      key: string
-      name: string
-      imageUrl: string
-    }
-    profile?: {
-      fid: number
-      username: string
-      displayName?: string
-      pfpUrl?: string
-    }
-    url?: string
-  }
-  buttonIndex?: number
-  inputText?: string
-  state?: string
+  buttonIndex: number | null
+  inputText: string | null
+  castId: {
+    fid: number
+    hash: string
+  } | null
+  url: string | null
+  messageHash: string | null
+  timestamp: number
+  network: number
+  version: number
 }
 
 interface TokenMetadata {
@@ -157,25 +143,32 @@ export default function Demo() {
   useEffect(() => {
     const initializeFrame = async () => {
       try {
-        // Wait for SDK to be ready
-        await new Promise(resolve => setTimeout(resolve, 100))
+        // Initialize SDK
+        const sdk = new sdk()
         
-        // Get frame message
-        const message = await getFrameMessage()
-        if (!message) {
-          logger.error('No frame message found')
+        // Signal ready to the client
+        await sdk.actions.ready()
+        
+        // Get frame context
+        const context = await sdk.context.get()
+        if (!context) {
+          logger.error('No frame context found')
           return
         }
 
-        // Validate the message
-        const isValid = await validateFrameMessage(message)
-        if (!isValid) {
-          logger.error('Invalid frame message')
-          return
-        }
-
-        setContext(message)
-        logger.info('Frame context loaded:', message)
+        // Set context with validated data
+        setContext({
+          buttonIndex: context.button || null,
+          inputText: context.input || null,
+          castId: context.castId || null,
+          url: context.url || null,
+          messageHash: context.messageHash || null,
+          timestamp: context.timestamp || Date.now(),
+          network: context.network || 1,
+          version: context.version || 1
+        })
+        
+        logger.info('Frame context loaded:', context)
         setIsSDKLoaded(true)
       } catch (error) {
         logger.error('Error initializing frame:', error)
@@ -505,11 +498,11 @@ export default function Demo() {
 
   // Load friend activities
   const loadFriendActivities = useCallback(async () => {
-    if (!context?.location.profile?.fid) return
+    if (!context?.castId) return
     try {
       const response = await sendMessage({
         message: 'Get friend activities',
-        userId: context.location.profile.fid.toString(),
+        userId: context.castId.fid.toString(),
         context: { type: 'friend_activity' }
       })
       if (response.metadata?.friendActivities) {
@@ -518,20 +511,20 @@ export default function Demo() {
     } catch (error) {
       console.error('Failed to load friend activities:', error)
     }
-  }, [context?.location.profile?.fid])
+  }, [context?.castId])
 
   // Load referrals
   const loadReferrals = useCallback(async () => {
-    if (!context?.location.profile?.fid) return
+    if (!context?.castId) return
     try {
       const response = await sendMessage({
         message: 'Get referrals',
-        userId: context.location.profile.fid.toString(),
+        userId: context.castId.fid.toString(),
         context: { type: 'referrals' }
       })
       if (response.metadata?.referrals) {
         const mappedReferrals: Referral[] = response.metadata.referrals.map(ref => ({
-          userId: ref.referrerId || context.location.profile.fid.toString(),
+          userId: ref.referrerId || (context?.castId?.fid?.toString() ?? '0'),
           referredId: ref.referredId,
           reward: ref.reward,
           timestamp: ref.timestamp,
@@ -542,7 +535,7 @@ export default function Demo() {
     } catch (error) {
       console.error('Failed to load referrals:', error)
     }
-  }, [context?.location.profile?.fid])
+  }, [context?.castId])
 
   // Load data when tab changes
   useEffect(() => {
@@ -589,7 +582,7 @@ export default function Demo() {
       }
     }
 
-    if (isSDKLoaded && context?.location.profile?.fid) {
+    if (isSDKLoaded && context?.castId) {
       loadInitialTokens()
     }
   }, [isSDKLoaded, context])
