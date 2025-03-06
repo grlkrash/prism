@@ -14,11 +14,21 @@ interface TokenGalleryProps {
   userId?: string
   tokens: TokenItem[]
   isLoading: boolean
-  hasMore: boolean
-  onLoadMore: () => Promise<void>
+  hasMore?: boolean
+  onLoadMore?: () => Promise<void>
+  onShare: (token: TokenItem) => void
+  onBuy: (token: TokenItem) => void
 }
 
-export function TokenGallery({ userId, tokens, isLoading, hasMore, onLoadMore }: TokenGalleryProps) {
+export function TokenGallery({ 
+  userId, 
+  tokens, 
+  isLoading, 
+  hasMore, 
+  onLoadMore,
+  onShare,
+  onBuy 
+}: TokenGalleryProps) {
   const { isConnected } = useAccount()
   const { sendTransaction, error: sendTxError, isPending: isSendTxPending } = useSendTransaction()
   const [ethAmount, setEthAmount] = React.useState('')
@@ -97,15 +107,9 @@ export function TokenGallery({ userId, tokens, isLoading, hasMore, onLoadMore }:
           </div>
 
           {/* Actions */}
-          <div className="grid grid-cols-2 gap-2 mt-4">
-            <Button 
-              onClick={() => handleBuy(token)} 
-              variant="default"
-              disabled={isSendTxPending}
-            >
-              {isSendTxPending ? 'Buying...' : isConnected ? 'Buy' : 'Connect'}
-            </Button>
-            <Button onClick={() => handleShare(token)} variant="secondary">Share</Button>
+          <div className="mt-4 flex gap-2">
+            <Button onClick={() => onBuy(token)}>Buy</Button>
+            <Button variant="secondary" onClick={() => onShare(token)}>Share</Button>
           </div>
 
           {sendTxError && (
@@ -120,7 +124,7 @@ export function TokenGallery({ userId, tokens, isLoading, hasMore, onLoadMore }:
         </div>
       )}
 
-      {hasMore && !isLoading && (
+      {hasMore && !isLoading && onLoadMore && (
         <div className="flex justify-center p-4">
           <Button onClick={onLoadMore} variant="outline">
             Load More

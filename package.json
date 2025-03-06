@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@coinbase/agentkit": "^0.2.3",
+    "@farcaster/frame-core": "^0.0.29",
     "@farcaster/frame-sdk": "^0.0.31",
     "@farcaster/hub-nodejs": "^0.12.7",
     "@langchain/core": "^0.3.42",
