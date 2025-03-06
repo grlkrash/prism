@@ -23,17 +23,17 @@ import { logger } from '@/utils/logger'
 
 // Define Frame context type based on SDK documentation
 interface FrameContext {
-  buttonIndex: number | null
-  inputText: string | null
-  castId: {
+  buttonIndex?: number | null
+  inputText?: string | null
+  castId?: {
     fid: number
     hash: string
   } | null
-  url: string | null
-  messageHash: string | null
-  timestamp: number
-  network: number
-  version: number
+  url?: string | null
+  messageHash?: string | null
+  timestamp?: number
+  network?: number
+  version?: number
 }
 
 interface TokenMetadata {
@@ -116,7 +116,7 @@ export default function Demo() {
   const config = useConfig()
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [context, setContext] = useState<FrameContext>()
+  const [context, setContext] = useState<FrameContext | undefined>(undefined)
   const [ethAmount, setEthAmount] = useState<string>('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isContextOpen, setIsContextOpen] = useState(false)
@@ -144,8 +144,8 @@ export default function Demo() {
     const initializeFrame = async () => {
       try {
         // Initialize Frame SDK
-        const frameContext = await sdk.context
-        setContext(frameContext)  // Direct assignment as per docs
+        const frameContext = await sdk.context as FrameContext
+        setContext(frameContext)
         sdk.actions.ready()
         setIsSDKLoaded(true)
         logger.info('Frame initialized')
