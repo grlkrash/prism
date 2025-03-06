@@ -7,6 +7,7 @@ import { getPersonalizedFeed } from '@/utils/feed'
 import type { TokenItem } from '@/types/token'
 import type { Cast } from '@/utils/mbdAi'
 import { TokenGallery } from '@/components/TokenGallery'
+import { tokenDatabase } from '@/utils/mbdAi'
 
 interface FeedProps {
   fid?: number
@@ -28,14 +29,57 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
         setError(null)
 
         if (!fid) {
-          throw new Error('User FID required for personalized feed')
+          // If no FID, show initial curated tokens from database
+          const initialTokens: TokenItem[] = tokenDatabase.map(token => ({
+            id: token.id.toString(),
+            name: token.name,
+            symbol: token.symbol,
+            description: token.description,
+            price: typeof token.price === 'string' ? parseFloat(token.price) : token.price,
+            imageUrl: token.imageUrl,
+            artistName: token.artistName,
+            culturalScore: token.culturalScore,
+            metadata: {
+              ...token.metadata,
+              category: token.metadata?.category || token.aiAnalysis?.category,
+              aiScore: token.aiAnalysis?.aiScore,
+              authorFid: token.id.toString(),
+              authorUsername: token.artistName,
+              timestamp: Date.now()
+            },
+            social: token.social
+          }))
+          setTokens(initialTokens)
+          setHasMore(false)
+          return
         }
 
         // Get personalized feed with AI agent recommendations
         const feed = await getPersonalizedFeed(fid.toString())
         
         if (!feed?.casts?.length) {
-          throw new Error('No tokens found in feed')
+          const initialTokens: TokenItem[] = tokenDatabase.map(token => ({
+            id: token.id.toString(),
+            name: token.name,
+            symbol: token.symbol,
+            description: token.description,
+            price: typeof token.price === 'string' ? parseFloat(token.price) : token.price,
+            imageUrl: token.imageUrl,
+            artistName: token.artistName,
+            culturalScore: token.culturalScore,
+            metadata: {
+              ...token.metadata,
+              category: token.metadata?.category || token.aiAnalysis?.category,
+              aiScore: token.aiAnalysis?.aiScore,
+              authorFid: token.id.toString(),
+              authorUsername: token.artistName,
+              timestamp: Date.now()
+            },
+            social: token.social
+          }))
+          setTokens(initialTokens)
+          setHasMore(false)
+          return
         }
 
         const feedTokens = feed.casts.map((cast: Cast) => ({
@@ -44,16 +88,47 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
           symbol: cast.aiAnalysis?.category || 'ART',
           description: cast.text,
           imageUrl: cast.author.pfp || 'https://placehold.co/300x300.png',
-          price: 0.1, // Number type as required by TokenItem
-          culturalScore: cast.aiAnalysis?.aiScore || 0.8
+          price: 0.1,
+          culturalScore: cast.aiAnalysis?.aiScore || 0.8,
+          metadata: {
+            authorFid: cast.author.fid.toString(),
+            authorUsername: cast.author.username,
+            timestamp: new Date(cast.timestamp).getTime(),
+            category: cast.aiAnalysis?.category,
+            aiScore: cast.aiAnalysis?.aiScore,
+            likes: cast.reactions.likes,
+            recasts: cast.reactions.recasts
+          }
         }))
 
         setTokens(feedTokens)
         setCursor(feed.next?.cursor || null)
         setHasMore(!!feed.next?.cursor)
       } catch (error) {
-        logger.error('Error loading personalized tokens:', error)
-        setError(error instanceof Error ? error.message : 'Failed to load personalized tokens')
+        logger.error('Error loading tokens:', error)
+        setError(error instanceof Error ? error.message : 'Failed to load tokens')
+        // Fallback to curated tokens on error
+        const initialTokens: TokenItem[] = tokenDatabase.map(token => ({
+          id: token.id.toString(),
+          name: token.name,
+          symbol: token.symbol,
+          description: token.description,
+          price: typeof token.price === 'string' ? parseFloat(token.price) : token.price,
+          imageUrl: token.imageUrl,
+          artistName: token.artistName,
+          culturalScore: token.culturalScore,
+          metadata: {
+            ...token.metadata,
+            category: token.metadata?.category || token.aiAnalysis?.category,
+            aiScore: token.aiAnalysis?.aiScore,
+            authorFid: token.id.toString(),
+            authorUsername: token.artistName,
+            timestamp: Date.now()
+          },
+          social: token.social
+        }))
+        setTokens(initialTokens)
+        setHasMore(false)
       } finally {
         setIsLoading(false)
       }
@@ -80,8 +155,17 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
         symbol: cast.aiAnalysis?.category || 'ART',
         description: cast.text,
         imageUrl: cast.author.pfp || 'https://placehold.co/300x300.png',
-        price: 0.1, // Number type as required by TokenItem
-        culturalScore: cast.aiAnalysis?.aiScore || 0.8
+        price: 0.1,
+        culturalScore: cast.aiAnalysis?.aiScore || 0.8,
+        metadata: {
+          authorFid: cast.author.fid.toString(),
+          authorUsername: cast.author.username,
+          timestamp: new Date(cast.timestamp).getTime(),
+          category: cast.aiAnalysis?.category,
+          aiScore: cast.aiAnalysis?.aiScore,
+          likes: cast.reactions.likes,
+          recasts: cast.reactions.recasts
+        }
       }))
 
       setTokens(prev => [...prev, ...newTokens])
@@ -104,7 +188,19 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
   }
 
   if (error) {
-    return <div className="text-red-500 p-4">{error}</div>
+    return (
+      <div>
+        <div className="text-red-500 p-4 mb-4">{error}</div>
+        <TokenGallery
+          tokens={tokens}
+          isLoading={isLoading}
+          hasMore={false}
+          onLoadMore={loadMoreTokens}
+          onShare={handleShare}
+          onBuy={handleBuy}
+        />
+      </div>
+    )
   }
 
   return (

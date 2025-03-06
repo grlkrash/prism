@@ -42,13 +42,21 @@ export default function Demo() {
   useEffect(() => {
     const initializeFrame = async () => {
       try {
-        // First ensure SDK is ready
+        logger.info('Initializing Frame SDK...')
+        
+        // First ensure SDK is ready and get context
         await sdk.actions.ready()
-        // Then get context
         const frameContext = await sdk.context
+        logger.info('Frame context received:', frameContext)
+        
+        // Initialize ethProvider
+        if (sdk.wallet.ethProvider) {
+          logger.info('Frame wallet provider available')
+        }
+        
         setContext(frameContext)
         setIsSDKLoaded(true)
-        logger.info('Frame initialized with context:', frameContext)
+        logger.info('Frame initialization complete')
       } catch (error) {
         logger.error('Error initializing frame:', error)
         setError(error instanceof Error ? error.message : 'Failed to initialize frame')
@@ -66,12 +74,32 @@ export default function Demo() {
         throw new Error('Frame SDK not initialized')
       }
 
-      // Connect using wagmi with the frame connector
+      logger.info('Starting wallet connection...')
+
+      // Get the frame connector
       const connector = config.connectors[0]
       if (!connector) {
         throw new Error('No wallet connector available')
       }
+      logger.info('Found wallet connector:', connector.name)
 
+      // First ensure we have frame context
+      if (!context?.user?.fid) {
+        throw new Error('Frame context not available')
+      }
+      logger.info('Frame context verified, FID:', context.user.fid)
+
+      // Get accounts using ethProvider
+      const provider = sdk.wallet.ethProvider
+      if (!provider) {
+        throw new Error('Wallet provider not available')
+      }
+
+      // Request accounts
+      const accounts = await provider.request({ method: 'eth_requestAccounts' })
+      logger.info('Accounts received:', accounts)
+
+      // Connect using wagmi
       await connectWallet({
         connector,
         chainId: 8453 // Base mainnet
@@ -82,7 +110,7 @@ export default function Demo() {
       logger.error('Error connecting wallet:', error)
       setError(error instanceof Error ? error.message : 'Failed to connect wallet. Please try again.')
     }
-  }, [isSDKLoaded, connectWallet, config.connectors])
+  }, [isSDKLoaded, connectWallet, config.connectors, context])
 
   // Add error boundary for RPC errors
   useEffect(() => {
@@ -120,9 +148,7 @@ export default function Demo() {
   const handleBuy = useCallback((token: TokenItem) => {
     try {
       if (!isConnected) {
-        connectWallet({
-          connector: config.connectors[0]
-        })
+        handleConnect()
         return
       }
 
@@ -140,7 +166,7 @@ export default function Demo() {
       logger.error('Error buying:', error)
       setError('Failed to initiate purchase')
     }
-  }, [isConnected, connectWallet, config.connectors, sendTransaction])
+  }, [isConnected, handleConnect, sendTransaction])
 
   if (!isSDKLoaded) {
     return (
@@ -161,6 +187,14 @@ export default function Demo() {
         {error && (
           <div className="bg-destructive/10 text-destructive text-sm p-4 rounded-lg mb-4">
             {error}
+            <Button 
+              onClick={() => setError(null)} 
+              variant="ghost" 
+              size="sm" 
+              className="ml-2"
+            >
+              Dismiss
+            </Button>
           </div>
         )}
 
@@ -172,16 +206,17 @@ export default function Demo() {
           </TabsList>
 
           <TabsContent value="feed" className="mt-4">
-            {!isConnected ? (
-              <Button 
-                onClick={handleConnect} 
-                className="w-full"
-                size="lg"
-              >
-                Connect Wallet
-              </Button>
-            ) : (
-              <Feed fid={context?.user?.fid} />
+            <Feed fid={context?.user?.fid} onShare={handleShare} onBuy={handleBuy} />
+            {!isConnected && (
+              <div className="mt-4">
+                <Button 
+                  onClick={handleConnect} 
+                  className="w-full"
+                  size="lg"
+                >
+                  Connect Wallet to Interact
+                </Button>
+              </div>
             )}
           </TabsContent>
 
