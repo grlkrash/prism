@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
     let nextCursor: string | undefined
     try {
       logger.info('[Frame] Fetching token mentions for art')
-      tokenMentions = await getTokenMentions('art', fid)
+      tokenMentions = await getTokenMentions('art', Number(fid))
       logger.info('[Frame] Successfully fetched token mentions:', {
         count: tokenMentions?.length || 0,
         mentions: tokenMentions?.map(cast => ({
@@ -188,7 +188,12 @@ export async function POST(req: NextRequest) {
           reactions: { likes: 100, recasts: 50 }
         }
         tokenMentions = [defaultCast]
-        logger.info('[Frame] Using default cast:', defaultCast)
+        logger.info('[Frame] Using default cast:', {
+          hash: defaultCast.hash,
+          text: defaultCast.text,
+          author: defaultCast.author.username,
+          timestamp: new Date(defaultCast.timestamp).toISOString()
+        })
       }
 
       // Calculate cultural scores for all casts

@@ -129,6 +129,16 @@ export async function getFarcasterCasts(fid: string | number, limit = 100) {
   }
 }
 
+// Define cultural keywords first
+const culturalKeywords = [
+  'art', 'artist', 'artwork', 'gallery', 'exhibition', 'digital art', 'nft',
+  'music', 'song', 'album', 'concert', 'sound', 'audio',
+  'culture', 'cultural', 'heritage', 'tradition', 'community',
+  'media', 'video', 'film', 'movie', 'streaming', 'content',
+  'entertainment', 'game', 'gaming', 'sports', 'event',
+  'creative', 'design', 'aesthetic', 'beauty', 'expression'
+]
+
 // Add cache interface and implementation
 interface TokenMentionsCache {
   [key: string]: {
@@ -139,16 +149,6 @@ interface TokenMentionsCache {
 
 const tokenMentionsCache: TokenMentionsCache = {}
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
-
-// Define cultural keywords first
-const culturalKeywords = [
-  'art', 'artist', 'artwork', 'gallery', 'exhibition', 'digital art', 'nft',
-  'music', 'song', 'album', 'concert', 'sound', 'audio',
-  'culture', 'cultural', 'heritage', 'tradition', 'community',
-  'media', 'video', 'film', 'movie', 'streaming', 'content',
-  'entertainment', 'game', 'gaming', 'sports', 'event',
-  'creative', 'design', 'aesthetic', 'beauty', 'expression'
-]
 
 // Get token mentions with caching
 export async function getTokenMentions(token: string, fid?: number): Promise<FarcasterCast[]> {
@@ -262,7 +262,7 @@ export async function getTokenMentions(token: string, fid?: number): Promise<Far
 
     return filteredCasts
   } catch (error) {
-    logger.error('Error fetching token mentions:', error)
+    logger.error('[Farcaster] Failed to get token mentions:', error)
     throw new FarcasterError('Failed to get token mentions')
   }
 }
