@@ -3,7 +3,6 @@ import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
 import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast, tokenDatabase } from '@/utils/mbdAi'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
-import sdk from '@farcaster/frame-sdk'
 import { OpenAI } from 'openai'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
@@ -17,21 +16,29 @@ interface MbdCast {
     username: string
     pfp?: string
   }
+  reactions: {
+    likes: number
+    recasts: number
+  }
+  timestamp: string
   aiAnalysis?: {
     hasCulturalElements?: boolean
     category?: string
     aiScore?: number
   }
-  metadata?: {
-    timestamp: number
-  }
 }
 
-interface MbdApiResponse {
-  casts?: MbdCast[]
+interface FeedResponse {
+  casts: MbdCast[]
   next?: {
     cursor?: string
   }
+}
+
+interface MbdApiResponse<T> {
+  data: T
+  status: number
+  success: boolean
 }
 
 // Initialize OpenAI client
@@ -122,7 +129,7 @@ export async function POST(req: NextRequest) {
     const hubResponse = await fetch(`${process.env.NEXT_PUBLIC_FARCASTER_HUB_URL}/v1/validateMessage`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/octet-stream'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(body)
     })
@@ -132,6 +139,7 @@ export async function POST(req: NextRequest) {
       return new Response('Invalid frame message', { status: 400 })
     }
 
+    // Extract data from validated message
     const { frameActionBody } = validation.message.data
     const { buttonIndex, inputText } = frameActionBody
     const fid = validation.message.data.fid
@@ -149,10 +157,10 @@ export async function POST(req: NextRequest) {
       }),
 
       // 2. Get personalized feed from MBD AI
-      getPersonalizedFeed(fid) as Promise<MbdApiResponse>
+      getPersonalizedFeed(fid.toString())
     ])
 
-    let combinedTokens: TokenItem[] = []
+    let combinedTokens = []
 
     // Process AI agent results
     if (agentResults.status === 'fulfilled' && agentResults.value?.metadata?.tokenRecommendations) {
@@ -160,94 +168,54 @@ export async function POST(req: NextRequest) {
     }
 
     // Process MBD AI results
-    if (mbdResults.status === 'fulfilled' && mbdResults.value?.casts) {
-      const culturalTokens = mbdResults.value.casts.filter((cast: MbdCast) => 
-        cast.aiAnalysis?.hasCulturalElements || 
-        cast.aiAnalysis?.category?.toLowerCase().includes('art')
-      )
-      
-      // Convert MBD casts to tokens
-      const mbdTokens = await Promise.all(culturalTokens.map(async (cast: MbdCast) => {
-        const token: TokenItem = {
-          id: cast.hash,
-          name: cast.text.split('\n')[0] || 'Untitled',
-          symbol: cast.text.match(/\$([A-Z]+)/)?.[1] || 'TOKEN',
-          description: cast.text,
-          price: 0.001,
-          image: cast.author.pfp || '',
-          category: cast.aiAnalysis?.category || 'cultural',
-          metadata: {
-            authorFid: String(cast.author.fid),
-            timestamp: cast.metadata?.timestamp || Date.now(),
-            culturalScore: cast.aiAnalysis?.aiScore || 0
-          }
-        }
+    if (mbdResults.status === 'fulfilled' && mbdResults.value?.data?.casts) {
+      const enhancedCasts = await Promise.all(
+        mbdResults.value.data.casts.map(async (cast: MbdCast) => {
+          try {
+            const analysis = await openai.chat.completions.create({
+              model: "gpt-4",
+              messages: [
+                {
+                  role: "system",
+                  content: "You are an expert in analyzing cultural tokens and art content."
+                },
+                {
+                  role: "user",
+                  content: `Analyze this content for cultural significance: ${cast.text}`
+                }
+              ],
+              temperature: 0.7,
+              max_tokens: 150
+            })
 
-        // Enhance with GPT-4 analysis
-        try {
-          const completion = await openai.chat.completions.create({
-            model: "gpt-4-turbo-preview",
-            messages: [{
-              role: "system",
-              content: "You are an expert in cultural tokens and digital art. Analyze this token's cultural significance."
-            }, {
-              role: "user",
-              content: `Token: ${JSON.stringify(token)}`
-            }],
-            temperature: 0.7,
-            max_tokens: 150
-          })
-
-          return {
-            ...token,
-            description: completion.choices[0]?.message?.content || token.description,
-            metadata: {
-              ...token.metadata,
-              aiEnhanced: true,
-              culturalScore: completion.choices[0]?.message?.content?.includes('cultural') ? 
-                (token.metadata?.culturalScore || 0) + 0.5 : 
-                token.metadata?.culturalScore || 0
+            return {
+              ...cast,
+              aiAnalysis: {
+                ...cast.aiAnalysis,
+                gptAnalysis: analysis.choices[0]?.message?.content || ''
+              }
             }
+          } catch (error) {
+            logger.error('Error analyzing cast with GPT:', error)
+            return cast
           }
-        } catch (error) {
-          logger.error('GPT-4 enhancement failed:', error)
-          return token
-        }
-      }))
+        })
+      )
 
-      combinedTokens.push(...mbdTokens)
+      combinedTokens.push(...enhancedCasts)
     }
 
-    // Remove duplicates and sort by cultural score
-    const uniqueTokens = Array.from(
-      new Map(combinedTokens.map(token => [token.id, token])).values()
-    ).sort((a, b) => 
-      (b.metadata?.culturalScore || 0) - (a.metadata?.culturalScore || 0)
-    )
-
-    // Get current token based on button index
-    const currentToken = uniqueTokens[buttonIndex - 1] || uniqueTokens[0]
-
-    // Generate frame response with post URL
-    const url = new URL(req.url)
-    const baseUrl = `${url.protocol}//${url.host}`
-    const postUrl = `${baseUrl}/api/frame`
-
+    // Generate frame response
     return new Response(
       `<!DOCTYPE html>
       <html>
         <head>
           <title>Cultural Token Discovery</title>
-          <meta property="og:title" content="${currentToken.name}" />
-          <meta property="og:description" content="${currentToken.description}" />
-          <meta property="og:image" content="${currentToken.image}" />
           <meta property="fc:frame" content="vNext" />
-          <meta property="fc:frame:image" content="${currentToken.image}" />
-          <meta property="fc:frame:post_url" content="${postUrl}" />
-          <meta property="fc:frame:button:1" content="Previous" />
-          <meta property="fc:frame:button:2" content="Details" />
-          <meta property="fc:frame:button:3" content="Next" />
-          <meta property="fc:frame:button:4" content="Share" />
+          <meta property="fc:frame:image" content="https://example.com/token-gallery.png" />
+          <meta property="fc:frame:button:1" content="View More" />
+          <meta property="fc:frame:button:2" content="Get Recommendations" />
+          <meta property="fc:frame:post_url" content="${process.env.NEXT_PUBLIC_APP_URL}/api/frame" />
         </head>
       </html>`,
       {
@@ -258,7 +226,10 @@ export async function POST(req: NextRequest) {
       }
     )
   } catch (error) {
-    logger.error('Frame route error:', error)
-    return new Response('Internal Server Error', { status: 500 })
+    logger.error('Error in frame route:', error)
+    return new Response(
+      JSON.stringify({ error: 'Internal server error' }),
+      { status: 500 }
+    )
   }
 } 

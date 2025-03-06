@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 import { logger } from '@/utils/logger'
 
-// Define Frame context types based on official docs
+// Define Frame context type based on SDK documentation
 interface FrameContext {
   buttonIndex: number | null
   inputText: string | null
@@ -116,7 +116,7 @@ export default function Demo() {
   const config = useConfig()
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [context, setContext] = useState<any>()
+  const [context, setContext] = useState<FrameContext>()
   const [ethAmount, setEthAmount] = useState<string>('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isContextOpen, setIsContextOpen] = useState(false)
@@ -143,31 +143,22 @@ export default function Demo() {
   useEffect(() => {
     const initializeFrame = async () => {
       try {
-        // Signal ready to the client
+        // Initialize Frame SDK
+        const frameContext = await sdk.context
+        setContext(frameContext)  // Direct assignment as per docs
         sdk.actions.ready()
-        
-        // Get frame context from untrusted data
-        const frameContext = {
-          buttonIndex: null,
-          inputText: null,
-          castId: null,
-          url: null,
-          messageHash: null,
-          timestamp: Date.now(),
-          network: 1,
-          version: 1
-        }
-        
-        setContext(frameContext)
         setIsSDKLoaded(true)
         logger.info('Frame initialized')
       } catch (error) {
         logger.error('Error initializing frame:', error)
+        setError('Failed to initialize frame')
       }
     }
 
-    initializeFrame()
-  }, [])
+    if (!isSDKLoaded) {
+      initializeFrame()
+    }
+  }, [isSDKLoaded])
 
   // Load initial data using agent
   const loadInitialData = async (fid?: number) => {
