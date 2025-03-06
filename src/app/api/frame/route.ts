@@ -7,11 +7,66 @@ import { OpenAI } from 'openai'
 import { randomUUID } from 'crypto'
 import type { TokenItem } from '@/types/token'
 import { FEATURE_FLAGS } from '@/utils/feature-flags'
+import { Token } from '@/types/token'
 
 // Types for MBD AI responses
-interface MbdCast {
+interface BaseCast {
+  hash: string
+  threadHash?: string
+  parentHash?: string
+  author: {
+    fid: number
+    username: string
+    displayName?: string
+    pfp?: string
+    bio?: string
+  }
+  text: string
+  reactions: {
+    likes: number
+    recasts: number
+  }
+}
+
+interface MbdCast extends BaseCast {
+  timestamp: number
+}
+
+interface FeedResponse {
+  casts: Cast[]
+  next?: {
+    cursor?: string
+  }
+}
+
+interface MbdApiResponse<T> {
+  data: T
+  status: number
+  success: boolean
+}
+
+interface EnhancedCast extends BaseCast {
+  name: string
+  symbol: string
+  description: string
+  price: string
+  timestamp: number
+  aiAnalysis?: {
+    category?: string
+    aiScore?: number
+    hasCulturalElements?: boolean
+    tags?: string[]
+    gptAnalysis?: string
+  }
+}
+
+type CombinedToken = EnhancedCast | {
   hash: string
   text: string
+  name: string
+  symbol: string
+  description: string
+  price: string
   author: {
     fid: number
     username: string
@@ -22,24 +77,12 @@ interface MbdCast {
     recasts: number
   }
   timestamp: string
-  aiAnalysis?: {
-    hasCulturalElements?: boolean
+  aiAnalysis: {
     category?: string
     aiScore?: number
+    hasCulturalElements?: boolean
+    tags?: string[]
   }
-}
-
-interface FeedResponse {
-  casts: MbdCast[]
-  next?: {
-    cursor?: string
-  }
-}
-
-interface MbdApiResponse<T> {
-  data: T
-  status: number
-  success: boolean
 }
 
 // Initialize OpenAI client
@@ -98,6 +141,16 @@ function generateFrameHtml({
     <meta property="og:image" content="${imageUrl}" />
   </head>
 </html>`
+}
+
+// Type guard for Token
+function isToken(obj: any): obj is Token {
+  return obj && 'id' in obj && 'name' in obj && 'symbol' in obj
+}
+
+// Type guard for MbdCast
+function isMbdCast(obj: any): obj is MbdCast {
+  return obj && 'author' in obj && 'text' in obj
 }
 
 export async function GET(req: NextRequest) {
@@ -201,7 +254,7 @@ export async function POST(req: NextRequest) {
     // Process MBD AI results
     if (mbdResults.status === 'fulfilled' && mbdResults.value?.data?.casts) {
       const enhancedCasts = await Promise.all(
-        mbdResults.value.data.casts.map(async (cast: MbdCast) => {
+        mbdResults.value.data.casts.map(async (cast: Cast): Promise<EnhancedCast> => {
           try {
             const analysis = await openai.chat.completions.create({
               model: "gpt-4",
@@ -224,23 +277,46 @@ export async function POST(req: NextRequest) {
             const symbol = tokenMatch ? tokenMatch[1] : 'TOKEN'
             
             return {
-              ...cast,
+              hash: cast.hash,
+              threadHash: cast.threadHash,
+              parentHash: cast.parentHash,
+              author: cast.author,
+              text: cast.text,
+              timestamp: new Date(cast.timestamp).getTime(),
+              reactions: cast.reactions,
               name: cast.author.username || 'Unknown Token',
               symbol,
               description: cast.text,
-              price: '0.001', // Example price, should be fetched from price feed
+              price: '0.001',
               aiAnalysis: {
-                ...cast.aiAnalysis,
                 gptAnalysis: analysis.choices[0]?.message?.content || '',
                 tags: analysis.choices[0]?.message?.content
                   ?.toLowerCase()
                   .match(/#\w+/g)
-                  ?.map(tag => tag.slice(1)) || []
+                  ?.map(tag => tag.slice(1)) || [],
+                aiScore: 0.5,
+                hasCulturalElements: true
               }
             }
           } catch (error) {
             logger.error('Error analyzing cast with GPT:', error)
-            return cast
+            return {
+              hash: cast.hash,
+              threadHash: cast.threadHash,
+              parentHash: cast.parentHash,
+              author: cast.author,
+              text: cast.text,
+              timestamp: new Date(cast.timestamp).getTime(),
+              reactions: cast.reactions,
+              name: cast.author.username || 'Unknown Token',
+              symbol: 'TOKEN',
+              description: cast.text,
+              price: '0.001',
+              aiAnalysis: {
+                aiScore: 0.5,
+                hasCulturalElements: true
+              }
+            }
           }
         })
       )
@@ -249,10 +325,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Sort tokens by AI score and social engagement
-    combinedTokens.sort((a, b) => {
-      const scoreA = (a.aiAnalysis?.aiScore || 0) * 0.7 + 
+    combinedTokens.sort((a: CombinedToken, b: CombinedToken) => {
+      const scoreA = ((a.aiAnalysis?.aiScore || 0) * 0.7) + 
         ((a.reactions?.likes || 0) + (a.reactions?.recasts || 0) * 2) * 0.3
-      const scoreB = (b.aiAnalysis?.aiScore || 0) * 0.7 + 
+      const scoreB = ((b.aiAnalysis?.aiScore || 0) * 0.7) + 
         ((b.reactions?.likes || 0) + (b.reactions?.recasts || 0) * 2) * 0.3
       return scoreB - scoreA
     })
@@ -297,9 +373,9 @@ export async function POST(req: NextRequest) {
       generateFrameHtml({
         postUrl: process.env.NEXT_PUBLIC_APP_URL + '/api/frame',
         token: selectedToken,
-        imageUrl: 'selectedToken' in selectedToken && selectedToken.imageUrl ? 
-          selectedToken.imageUrl : 
-          selectedToken.author?.pfp || 'https://placehold.co/1200x630/png',
+        imageUrl: isToken(selectedToken) ? selectedToken.imageUrl : 
+                 isMbdCast(selectedToken) ? selectedToken.author?.pfp : 
+                 'https://placehold.co/1200x630/png',
         recommendations: combinedTokens,
         errorMessage: combinedTokens.length === 0 ? 'No recommendations available' : undefined
       }),

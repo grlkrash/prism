@@ -2,7 +2,7 @@ import { AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, g
 import { logger } from './logger'
 import { analyzeToken, Token } from './mbdAi'
 import { HumanMessage } from "@langchain/core/messages"
-import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions, getTokenMentions } from './farcaster'
+import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions } from './farcaster'
 import { getPersonalizedFeed } from './feed'
 import { Cast } from './mbdAi'
 
@@ -13,12 +13,6 @@ const CDP_PRIVATE_KEY = process.env.CDP_API_KEY_PRIVATE_KEY || process.env.FARCA
 interface TokenMention {
   tokenId: string
   category?: string
-  socialContext?: {
-    mentions: number
-    reactions: number
-  }
-  culturalScore?: number
-  analysis?: Token
 }
 
 interface SendMessageParams {
@@ -151,97 +145,32 @@ const fallbackToken: Token = {
   }
 }
 
-export async function sendMessage(params: SendMessageParams): Promise<AgentResponse> {
+export async function sendMessage(request: AgentRequest): Promise<AgentResponse> {
   try {
-    // Check for required API keys
-    if (!CDP_API_KEY || !CDP_PRIVATE_KEY) {
-      logger.warn('CDP API configuration missing, using fallback response')
-      return {
-        response: 'I apologize, but I cannot process your request at the moment. Please check API configuration.',
-        recommendations: [fallbackToken],
-        actions: []
-      }
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.AGENTKIT_API_KEY}`,
+      'X-API-Version': '2'
     }
 
-    // Get Farcaster context if available
-    let farcasterContext = {}
-    if (process.env.FARCASTER_API_KEY && params.userId) {
-      try {
-        const [following, casts] = await Promise.all([
-          getFarcasterFollowing(params.userId),
-          getFarcasterCasts(params.userId, 10)
-        ])
-        farcasterContext = {
-          following,
-          recentCasts: casts,
-          fid: params.userId
-        }
-      } catch (error) {
-        logger.error('Failed to get Farcaster context:', error)
-      }
-    }
+    // Validate request
+    const validatedRequest = agentRequestSchema.parse(request)
 
-    const response = await fetch('/api/agent', {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/agent`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CDP-API-Key': CDP_API_KEY,
-        'X-CDP-Private-Key': CDP_PRIVATE_KEY,
-        'X-Farcaster-API-Key': process.env.FARCASTER_API_KEY || ''
-      },
-      body: JSON.stringify({
-        ...params,
-        context: {
-          ...params.context,
-          ...farcasterContext,
-          cdpApiKey: CDP_API_KEY,
-          cdpPrivateKey: CDP_PRIVATE_KEY
-        }
-      })
+      headers,
+      body: JSON.stringify(validatedRequest)
     })
 
     if (!response.ok) {
-      throw new AgentkitError(`Agent request failed: ${response.statusText}`, response.status)
+      throw new Error(`Agent request failed: ${response.statusText}`)
     }
 
     const data = await response.json()
-    
-    // Enhance recommendations with Farcaster data if available
-    let recommendations = data.recommendations || []
-    if (process.env.FARCASTER_API_KEY && recommendations.length > 0) {
-      try {
-        const enhancedRecommendations = await Promise.all(
-          recommendations.map(async (rec: Token) => {
-            const mentions = await getTokenMentions(rec.symbol, 5)
-            return {
-              ...rec,
-              socialContext: {
-                mentions: mentions.length,
-                reactions: mentions.reduce((sum: number, cast: { reactions: { likes: number; recasts: number } }) => 
-                  sum + cast.reactions.likes + cast.reactions.recasts, 0
-                )
-              }
-            }
-          })
-        )
-        recommendations = enhancedRecommendations
-      } catch (error) {
-        logger.error('Failed to enhance recommendations with Farcaster data:', error)
-      }
-    }
-
-    return {
-      response: data.message || data.response || '',
-      recommendations,
-      actions: data.actions || []
-    }
+    return agentResponseSchema.parse(data)
   } catch (error) {
-    logger.error('Agent error:', error)
-    return {
-      response: 'An error occurred while processing your request.',
-      recommendations: [fallbackToken],
-      actions: []
-    }
+    logger.error('Error in sendMessage:', error)
+    throw error
   }
 }
 

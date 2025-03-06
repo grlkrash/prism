@@ -4,6 +4,7 @@ import { SystemMessage, HumanMessage } from '@langchain/core/messages'
 import { RunnableSequence } from '@langchain/core/runnables'
 import { ChatPromptTemplate } from "@langchain/core/prompts"
 import { logger } from '@/utils/logger'
+import { OpenAI } from 'openai'
 
 export const agentRequestSchema = z.object({
   message: z.string(),
@@ -66,6 +67,21 @@ share|SYMBOL|Share Token`),
   temperature: 0.7
 }
 
+interface TokenRecommendation {
+  name: string
+  symbol: string
+  description: string
+  culturalScore?: number
+  category?: string
+  tags?: string[]
+}
+
+let currentRecommendation: TokenRecommendation = {
+  name: '',
+  symbol: '',
+  description: ''
+}
+
 export async function getAgent() {
   try {
     const chain = RunnableSequence.from([
@@ -98,14 +114,7 @@ export async function getAgent() {
             })
 
             // Extract recommendations and actions from the text response
-            const recommendations: Array<{
-              name: string
-              symbol: string
-              description: string
-              culturalScore?: number
-              category?: string
-              tags?: string[]
-            }> = []
+            const recommendations: Array<TokenRecommendation> = []
 
             const actions: Array<{
               type: string
@@ -115,15 +124,6 @@ export async function getAgent() {
 
             // Parse recommendations
             const lines = rawContent.split('\n')
-            let currentRecommendation: {
-              name?: string
-              symbol?: string
-              description?: string
-              culturalScore?: number
-              category?: string
-              tags?: string[]
-            } = {}
-
             let inRecommendationsSection = false
             let inActionsSection = false
 
@@ -144,7 +144,7 @@ export async function getAgent() {
                 // Match token name, symbol, and description
                 const tokenMatch = line.match(/(\d+)\.\s+(.+?)\s+\((\$[A-Z]+)\):\s+(.+)/)
                 if (tokenMatch) {
-                  if (currentRecommendation.name) {
+                  if (currentRecommendation.name && currentRecommendation.symbol && currentRecommendation.description) {
                     recommendations.push({ ...currentRecommendation })
                   }
                   currentRecommendation = {
@@ -163,14 +163,14 @@ export async function getAgent() {
                 }
 
                 // Match category
-                const categoryMatch = line.match(/Category:\s*(\w+)/)
+                const categoryMatch = line.match(/Category:\s*(.+)/)
                 if (categoryMatch && currentRecommendation.name) {
                   currentRecommendation.category = categoryMatch[1]
                   continue
                 }
 
                 // Match tags
-                const tagsMatch = line.match(/Tags:\s*\[(.*?)\]/)
+                const tagsMatch = line.match(/Tags:\s*(.+)/)
                 if (tagsMatch && currentRecommendation.name) {
                   currentRecommendation.tags = tagsMatch[1].split(',').map(tag => tag.trim())
                   continue

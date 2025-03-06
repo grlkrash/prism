@@ -1,3 +1,5 @@
+import { Token as MbdToken } from '@/utils/mbdAi'
+
 export interface TokenItem {
   id: string
   name: string
@@ -47,3 +49,27 @@ export interface TokenFeed {
 
 // Type alias for backward compatibility
 export type Token = TokenItem 
+
+export interface TokenMention {
+  tokenId: string
+  category?: string
+  socialContext?: {
+    mentions: number
+    reactions: number
+  }
+  culturalScore?: number
+  analysis?: MbdToken
+}
+
+export interface TokenAnalysis {
+  tokenId: string
+  category?: string
+  analysis: MbdToken
+  culturalScore: number
+  socialContext: {
+    mentions: number
+    reactions: number
+  }
+}
+
+export type EnhancedTokenMention = TokenMention | TokenAnalysis 

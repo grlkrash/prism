@@ -14,16 +14,18 @@ export const MBD_AI_CONFIG = {
     }
     
     // Get API key from environment variables
-    const apiKey = process.env.MBD_API_KEY
+    const apiKey = process.env.MBD_API_KEY?.trim()
     
     // Add API key to headers if available
     if (apiKey) {
-      if (!apiKey.startsWith('mbd-')) {
+      // Validate API key format more flexibly
+      if (!apiKey.startsWith('mbd_live_')) {
         logger.error('[MBD AI] Invalid API key format')
         throw new Error('Invalid MBD API key format')
       }
       headers['Authorization'] = `Bearer ${apiKey}`
       headers['X-API-Version'] = '2'
+      logger.info('[MBD AI] API key validated and added to headers')
     } else {
       logger.warn('[MBD AI] API key not found')
       throw new Error('MBD API key not found')

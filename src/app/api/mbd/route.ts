@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const apiUrl = process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
     
     // Validate API key format
-    if (!apiKey || !apiKey.startsWith('mbd-')) {
+    if (!apiKey || !apiKey.startsWith('mbd_live_')) {
       console.error('[MBD API] Invalid API key format')
       return NextResponse.json({ 
         error: 'API configuration error', 
