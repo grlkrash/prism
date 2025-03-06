@@ -6,7 +6,6 @@ import {
   useConnect,
   useDisconnect,
   useSendTransaction,
-  useConfig
 } from 'wagmi'
 import { Button } from '@/components/ui/button'
 import sdk from '@farcaster/frame-sdk'
@@ -24,9 +23,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FriendActivity } from '@/components/frame/friend-activity'
 import { Referrals } from '@/components/frame/referrals'
+import { config } from '@/components/providers/WagmiProvider'
+import { getAddress } from 'viem'
 
 export default function Demo() {
-  const config = useConfig()
   const [isSDKLoaded, setIsSDKLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [context, setContext] = useState<Context.FrameContext | undefined>()
@@ -38,205 +38,148 @@ export default function Demo() {
   const { disconnect } = useDisconnect()
   const { sendTransaction } = useSendTransaction()
 
-  // Initialize frame
+  // Initialize Frame SDK
   useEffect(() => {
-    const initializeFrame = async () => {
+    let cleanup: (() => void) | undefined
+
+    async function initializeFrame() {
       try {
-        logger.info('Initializing Frame SDK...')
-        
-        // First ensure SDK is ready and get context
-        await sdk.actions.ready()
+        // Get frame context
         const frameContext = await sdk.context
-        logger.info('Frame context received:', frameContext)
+        logger.info('Frame context retrieved:', frameContext)
         
-        // Initialize ethProvider
-        if (sdk.wallet.ethProvider) {
-          logger.info('Frame wallet provider available')
-        }
+        // Signal ready to Warpcast
+        await sdk.actions.ready()
         
         setContext(frameContext)
         setIsSDKLoaded(true)
-        logger.info('Frame initialization complete')
-      } catch (error) {
-        logger.error('Error initializing frame:', error)
-        setError(error instanceof Error ? error.message : 'Failed to initialize frame')
+
+        // Add provider event listeners
+        if (sdk.wallet.ethProvider) {
+          // Handle disconnects (includes errors)
+          const handleDisconnect = (error: Error) => {
+            logger.error('Provider disconnected:', error)
+            setError(`Provider Error: ${error.message}`)
+          }
+
+          // Handle chain changes
+          const handleChainChanged = (chainId: string) => {
+            logger.info('Chain changed:', chainId)
+          }
+
+          // Handle account changes
+          const handleAccountsChanged = (accounts: readonly `0x${string}`[]) => {
+            const formattedAccounts = accounts.map(getAddress)
+            logger.info('Accounts changed:', formattedAccounts)
+            if (accounts.length === 0) {
+              setError('Wallet disconnected')
+            }
+          }
+
+          sdk.wallet.ethProvider.on('disconnect', handleDisconnect)
+          sdk.wallet.ethProvider.on('chainChanged', handleChainChanged)
+          sdk.wallet.ethProvider.on('accountsChanged', handleAccountsChanged)
+
+          // Return cleanup function
+          cleanup = () => {
+            if (sdk.wallet.ethProvider) {
+              sdk.wallet.ethProvider.removeListener('disconnect', handleDisconnect)
+              sdk.wallet.ethProvider.removeListener('chainChanged', handleChainChanged)
+              sdk.wallet.ethProvider.removeListener('accountsChanged', handleAccountsChanged)
+            }
+          }
+        }
+      } catch (e) {
+        logger.error('Frame SDK initialization error:', e)
+        setError(e instanceof Error ? e.message : 'Failed to initialize Frame SDK')
+        setIsSDKLoaded(false)
       }
     }
 
     if (!isSDKLoaded) {
       initializeFrame()
     }
+
+    return () => {
+      cleanup?.()
+    }
   }, [isSDKLoaded])
 
+  // Handle wallet connection
   const handleConnect = useCallback(async () => {
     try {
-      if (!isSDKLoaded) {
-        throw new Error('Frame SDK not initialized')
-      }
-
-      logger.info('Starting wallet connection...')
-
-      // Get the frame connector
-      const connector = config.connectors[0]
-      if (!connector) {
-        throw new Error('No wallet connector available')
-      }
-      logger.info('Found wallet connector:', connector.name)
-
-      // First ensure we have frame context
-      if (!context?.user?.fid) {
-        throw new Error('Frame context not available')
-      }
-      logger.info('Frame context verified, FID:', context.user.fid)
-
-      // Get accounts using ethProvider
-      const provider = sdk.wallet.ethProvider
-      if (!provider) {
-        throw new Error('Wallet provider not available')
-      }
-
-      // Request accounts
-      const accounts = await provider.request({ method: 'eth_requestAccounts' })
-      logger.info('Accounts received:', accounts)
-
-      // Connect using wagmi
       await connectWallet({
-        connector,
+        connector: config.connectors[0],
         chainId: 8453 // Base mainnet
       })
-      
-      logger.info('Wallet connected successfully')
-    } catch (error) {
-      logger.error('Error connecting wallet:', error)
-      setError(error instanceof Error ? error.message : 'Failed to connect wallet. Please try again.')
+    } catch (e) {
+      logger.error('Wallet connection error:', e)
+      setError(e instanceof Error ? e.message : 'Failed to connect wallet')
     }
-  }, [isSDKLoaded, connectWallet, config.connectors, context])
+  }, [connectWallet])
 
-  // Add error boundary for RPC errors
-  useEffect(() => {
-    const handleError = (event: ErrorEvent) => {
-      // Handle both RPC and general connection errors
-      if (event.error?.name === 'RpcResponse.InternalErrorError' || 
-          event.error?.message?.includes('connection') ||
-          event.error?.message?.includes('network')) {
-        logger.error('Connection Error:', event.error)
-        setError('Connection error. Please check your wallet and network connection.')
-      }
-    }
-
-    window.addEventListener('error', handleError)
-    window.addEventListener('unhandledrejection', (event) => handleError(event as unknown as ErrorEvent))
-    
-    return () => {
-      window.removeEventListener('error', handleError)
-      window.removeEventListener('unhandledrejection', (event) => handleError(event as unknown as ErrorEvent))
-    }
-  }, [])
-
-  // Share action
-  const handleShare = useCallback((token: TokenItem) => {
+  // Handle wallet disconnection
+  const handleDisconnect = useCallback(async () => {
     try {
-      const shareUrl = `https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`
-      sdk.actions.openUrl(shareUrl)
-    } catch (error) {
-      logger.error('Error sharing:', error)
-      setError('Failed to share token')
+      await disconnect()
+      setContext(undefined)
+      setIsSDKLoaded(false)
+    } catch (e) {
+      logger.error('Wallet disconnection error:', e)
+      setError(e instanceof Error ? e.message : 'Failed to disconnect wallet')
     }
-  }, [])
-
-  // Buy action
-  const handleBuy = useCallback((token: TokenItem) => {
-    try {
-      if (!isConnected) {
-        handleConnect()
-        return
-      }
-
-      const contractAddress = token.social?.website || process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
-      if (!contractAddress) {
-        setError('No contract address available for this token')
-        return
-      }
-
-      sendTransaction({
-        to: contractAddress as `0x${string}`,
-        value: BigInt(0.001 * 1e18), // Default 0.001 ETH for demo
-      })
-    } catch (error) {
-      logger.error('Error buying:', error)
-      setError('Failed to initiate purchase')
-    }
-  }, [isConnected, handleConnect, sendTransaction])
+  }, [disconnect])
 
   if (!isSDKLoaded) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-muted-foreground">Loading...</p>
+        <p className="text-muted-foreground">Loading Frame...</p>
       </div>
     )
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-4">
-      <div className="w-[300px] mx-auto py-4 px-2">
-        <h1 className="text-2xl font-bold text-center mb-4">Cultural Token Discovery</h1>
-        <p className="text-center text-muted-foreground mb-6">
-          Explore and collect cultural tokens from the community
-        </p>
+    <div className="container mx-auto py-8">
+      <div className="space-y-8">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold">Cultural Token Discovery</h1>
+          <div>
+            {isConnected ? (
+              <Button onClick={handleDisconnect}>Disconnect</Button>
+            ) : (
+              <Button onClick={handleConnect}>Connect Wallet</Button>
+            )}
+          </div>
+        </div>
 
         {error && (
-          <div className="bg-destructive/10 text-destructive text-sm p-4 rounded-lg mb-4">
-            {error}
-            <Button 
-              onClick={() => setError(null)} 
-              variant="ghost" 
-              size="sm" 
-              className="ml-2"
-            >
-              Dismiss
-            </Button>
-          </div>
+          <Dialog open={!!error} onOpenChange={() => setError(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Error</DialogTitle>
+                <DialogDescription>{error}</DialogDescription>
+              </DialogHeader>
+            </DialogContent>
+          </Dialog>
         )}
 
-        <Tabs defaultValue={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
             <TabsTrigger value="feed">Feed</TabsTrigger>
-            <TabsTrigger value="friends">Friends</TabsTrigger>
+            <TabsTrigger value="friends">Friend Activity</TabsTrigger>
             <TabsTrigger value="referrals">Referrals</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="feed" className="mt-4">
-            <Feed fid={context?.user?.fid} onShare={handleShare} onBuy={handleBuy} />
-            {!isConnected && (
-              <div className="mt-4">
-                <Button 
-                  onClick={handleConnect} 
-                  className="w-full"
-                  size="lg"
-                >
-                  Connect Wallet to Interact
-                </Button>
-              </div>
-            )}
+          <TabsContent value="feed">
+            <Feed fid={context?.user?.fid} />
           </TabsContent>
-
           <TabsContent value="friends">
-            {isConnected ? (
-              <FriendActivity fid={context?.user?.fid} />
-            ) : (
-              <Button onClick={handleConnect} className="w-full">Connect Wallet</Button>
-            )}
+            <FriendActivity fid={context?.user?.fid} />
           </TabsContent>
-
           <TabsContent value="referrals">
-            {isConnected ? (
-              <Referrals fid={context?.user?.fid} />
-            ) : (
-              <Button onClick={handleConnect} className="w-full">Connect Wallet</Button>
-            )}
+            <Referrals fid={context?.user?.fid} />
           </TabsContent>
         </Tabs>
       </div>
-    </main>
+    </div>
   )
 } 

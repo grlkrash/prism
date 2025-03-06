@@ -13,8 +13,9 @@ export function frameConnector() {
     type: frameConnector.type,
 
     async setup() {
-      this.connect({ chainId: config.chains[0].id })
+      await this.connect({ chainId: config.chains[0].id })
     },
+
     async connect({ chainId } = {}) {
       const provider = await this.getProvider()
       const accounts = await provider.request({
@@ -34,9 +35,11 @@ export function frameConnector() {
         chainId: currentChainId,
       }
     },
+
     async disconnect() {
       connected = false
     },
+
     async getAccounts() {
       if (!connected) throw new Error('Not connected')
       const provider = await this.getProvider()
@@ -45,19 +48,19 @@ export function frameConnector() {
       })
       return accounts.map((x) => getAddress(x))
     },
+
     async getChainId() {
       const provider = await this.getProvider()
       const hexChainId = await provider.request({ method: 'eth_chainId' })
       return fromHex(hexChainId, 'number')
     },
-    async isAuthorized() {
-      if (!connected) {
-        return false
-      }
 
+    async isAuthorized() {
+      if (!connected) return false
       const accounts = await this.getAccounts()
       return !!accounts.length
     },
+
     async switchChain({ chainId }) {
       const provider = await this.getProvider()
       const chain = config.chains.find((x) => x.id === chainId)
@@ -69,6 +72,7 @@ export function frameConnector() {
       })
       return chain
     },
+
     onAccountsChanged(accounts) {
       if (accounts.length === 0) this.onDisconnect()
       else
@@ -76,14 +80,17 @@ export function frameConnector() {
           accounts: accounts.map((x) => getAddress(x)),
         })
     },
+
     onChainChanged(chain) {
       const chainId = Number(chain)
       config.emitter.emit('change', { chainId })
     },
+
     async onDisconnect() {
       config.emitter.emit('disconnect')
       connected = false
     },
+
     async getProvider() {
       return sdk.wallet.ethProvider
     },

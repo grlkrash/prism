@@ -3,7 +3,7 @@ import { logger } from '@/utils/logger'
 export const MBD_AI_CONFIG = {
   // API Configuration
   API_URL: process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
-  WARPCAST_API_URL: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com',
+  WARPCAST_API_URL: process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com/v2',
   
   // Headers Configuration
   getHeaders: () => {
@@ -20,12 +20,13 @@ export const MBD_AI_CONFIG = {
     if (apiKey) {
       if (!apiKey.startsWith('mbd-')) {
         logger.error('[MBD AI] Invalid API key format')
-        return headers // Continue without auth for development
+        throw new Error('Invalid MBD API key format')
       }
       headers['Authorization'] = `Bearer ${apiKey}`
       headers['X-API-Version'] = '2'
     } else {
-      logger.warn('[MBD AI] API key not found, continuing without authentication')
+      logger.warn('[MBD AI] API key not found')
+      throw new Error('MBD API key not found')
     }
     
     return headers
@@ -108,14 +109,14 @@ export const MBD_AI_CONFIG = {
   logConfig: () => {
     if (typeof window === 'undefined') {
       // Server-side logging
-      console.log('=== MBD AI Server Configuration ===')
-      console.log('API Key exists:', !!process.env.MBD_API_KEY)
-      console.log('API URL:', process.env.MBD_AI_API_URL)
+      logger.info('=== MBD AI Server Configuration ===')
+      logger.info('API Key exists:', !!process.env.MBD_API_KEY)
+      logger.info('API URL:', process.env.MBD_AI_API_URL)
     } else {
       // Client-side logging
-      console.log('=== MBD AI Client Configuration ===')
-      console.log('Using proxy endpoints')
-      console.log('API URL (proxy):', '/api/mbd')
+      logger.info('=== MBD AI Client Configuration ===')
+      logger.info('Using proxy endpoints')
+      logger.info('API URL (proxy):', '/api/mbd')
     }
   }
 }
@@ -123,7 +124,20 @@ export const MBD_AI_CONFIG = {
 // Export validation function
 export const isConfigValid = () => {
   if (typeof window === 'undefined') {
-    return !!process.env.MBD_API_KEY && !!process.env.MBD_AI_API_URL
+    const apiKey = process.env.MBD_API_KEY
+    const apiUrl = process.env.MBD_AI_API_URL
+    
+    if (!apiKey || !apiKey.startsWith('mbd-')) {
+      logger.error('[MBD AI] Invalid API key format')
+      return false
+    }
+    
+    if (!apiUrl) {
+      logger.error('[MBD AI] Missing API URL')
+      return false
+    }
+    
+    return true
   }
   return true // Client-side is always valid since it uses proxy
 }
@@ -132,6 +146,9 @@ export const isConfigValid = () => {
 if (process.env.NODE_ENV === 'development') {
   MBD_AI_CONFIG.logConfig()
 }
+
+// Add test mode flag
+export const isTestMode = process.env.NODE_ENV === 'test' || process.env.MBD_API_KEY === 'test-key-for-development'
 
 export default MBD_AI_CONFIG
 
@@ -145,9 +162,6 @@ export async function checkApiStatus() {
     return false
   }
 }
-
-// Add test mode flag
-export const isTestMode = process.env.NODE_ENV === 'test' || process.env.MBD_API_KEY === 'test-key-for-development'
 
 // Helper function to get mock data for test mode
 export function getMockData() {
