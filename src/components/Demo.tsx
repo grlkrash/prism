@@ -42,9 +42,9 @@ export default function Demo() {
   useEffect(() => {
     const initializeFrame = async () => {
       try {
+        await sdk.actions.ready()
         const frameContext = await sdk.context
         setContext(frameContext)
-        await sdk.actions.ready()
         setIsSDKLoaded(true)
         logger.info('Frame initialized')
       } catch (error) {
@@ -60,29 +60,39 @@ export default function Demo() {
 
   // Share action
   const handleShare = useCallback((token: TokenItem) => {
-    const shareUrl = `https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`
-    sdk.actions.openUrl(shareUrl)
+    try {
+      const shareUrl = `https://warpcast.com/~/compose?text=Check out ${token.name} (${token.symbol})`
+      sdk.actions.openUrl(shareUrl)
+    } catch (error) {
+      logger.error('Error sharing:', error)
+      setError('Failed to share token')
+    }
   }, [])
 
   // Buy action
   const handleBuy = useCallback((token: TokenItem) => {
-    if (!isConnected) {
-      connectWallet({
-        connector: config.connectors[0]
+    try {
+      if (!isConnected) {
+        connectWallet({
+          connector: config.connectors[0]
+        })
+        return
+      }
+
+      const contractAddress = token.social?.website || process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
+      if (!contractAddress) {
+        setError('No contract address available for this token')
+        return
+      }
+
+      sendTransaction({
+        to: contractAddress as `0x${string}`,
+        value: BigInt(0.001 * 1e18), // Default 0.001 ETH for demo
       })
-      return
+    } catch (error) {
+      logger.error('Error buying:', error)
+      setError('Failed to initiate purchase')
     }
-
-    const contractAddress = token.social?.website || process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ADDRESS
-    if (!contractAddress) {
-      setError('No contract address available for this token')
-      return
-    }
-
-    sendTransaction({
-      to: contractAddress as `0x${string}`,
-      value: BigInt(0.001 * 1e18), // Default 0.001 ETH for demo
-    })
   }, [isConnected, connectWallet, config.connectors, sendTransaction])
 
   if (!isSDKLoaded) {
@@ -94,19 +104,17 @@ export default function Demo() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+    <div className="w-[300px] mx-auto py-4 px-2">
       <h1 className="text-2xl font-bold text-center mb-4">Prism: Cultural Tokens</h1>
       
-      <Dialog>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cultural Token Discovery</DialogTitle>
-            <DialogDescription>
-              Explore and collect cultural tokens from the community
-            </DialogDescription>
-          </DialogHeader>
+      <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
+        <div className="p-4">
+          <h2 className="text-lg font-semibold mb-2">Cultural Token Discovery</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Explore and collect cultural tokens from the community
+          </p>
           
-          <Tabs defaultValue="feed" className="w-full max-w-[300px]" onValueChange={setActiveTab}>
+          <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="feed">Feed</TabsTrigger>
               <TabsTrigger value="friends">Friends</TabsTrigger>
@@ -143,19 +151,19 @@ export default function Demo() {
           </Tabs>
 
           {isConnected ? (
-            <Button onClick={() => disconnect()} className="mt-4">
-              Disconnect
+            <Button onClick={() => disconnect()} className="w-full mt-4">
+              Disconnect Wallet
             </Button>
           ) : (
             <Button 
               onClick={() => connectWallet({ connector: config.connectors[0] })}
-              className="mt-4"
+              className="w-full mt-4"
             >
               Connect Wallet
             </Button>
           )}
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
     </div>
   )
 } 
