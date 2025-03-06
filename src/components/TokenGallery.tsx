@@ -69,15 +69,17 @@ export function TokenGallery({
           className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-all hover:shadow-lg"
         >
           {/* Token Image */}
-          <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-lg mb-4 flex items-center justify-center">
+          <div className="relative w-full aspect-[4/3] bg-gray-200 dark:bg-gray-700 rounded-lg mb-4">
             {token.image ? (
               <img 
                 src={token.image} 
                 alt={token.name}
-                className="w-full h-full object-cover rounded-lg"
+                className="absolute inset-0 w-full h-full object-contain rounded-lg"
               />
             ) : (
-              <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-gray-500 dark:text-gray-400">{token.symbol}</span>
+              </div>
             )}
           </div>
 

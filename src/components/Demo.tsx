@@ -56,26 +56,49 @@ export default function Demo() {
 
         // Add provider event listeners
         if (sdk.wallet.ethProvider) {
-          // Handle disconnects (includes errors)
-          const handleDisconnect = (error: Error) => {
-            logger.error('Provider disconnected:', error)
-            setError(`Provider Error: ${error.message}`)
-          }
-
-          // Handle chain changes
-          const handleChainChanged = (chainId: string) => {
-            logger.info('Chain changed:', chainId)
-          }
-
-          // Handle account changes
-          const handleAccountsChanged = (accounts: readonly `0x${string}`[]) => {
-            const formattedAccounts = accounts.map(getAddress)
-            logger.info('Accounts changed:', formattedAccounts)
-            if (accounts.length === 0) {
+          // Handle disconnects and errors
+          const handleDisconnect = (error?: Error) => {
+            logger.info('Provider disconnected', error)
+            if (error) {
+              logger.error('Provider error:', error)
+              setError(`Provider Error: ${error.message}`)
+            } else {
               setError('Wallet disconnected')
             }
           }
 
+          // Handle chain changes
+          const handleChainChanged = (chainId: string) => {
+            try {
+              logger.info('Chain changed:', chainId)
+              const numericChainId = parseInt(chainId, 16)
+              if (numericChainId !== 8453) { // Base mainnet
+                setError('Please switch to Base network')
+              }
+              // Refresh page on chain change to ensure proper state
+              window.location.reload()
+            } catch (err) {
+              logger.error('Error handling chain change:', err)
+              setError('Invalid chain ID received')
+            }
+          }
+
+          // Handle account changes with proper error catching
+          const handleAccountsChanged = (accounts: readonly `0x${string}`[]) => {
+            try {
+              if (!accounts || accounts.length === 0) {
+                handleDisconnect()
+                return
+              }
+              const formattedAccounts = accounts.map(getAddress)
+              logger.info('Accounts changed:', formattedAccounts)
+            } catch (err) {
+              logger.error('Error handling account change:', err)
+              setError('Failed to update accounts')
+            }
+          }
+
+          // Set up event listeners
           sdk.wallet.ethProvider.on('disconnect', handleDisconnect)
           sdk.wallet.ethProvider.on('chainChanged', handleChainChanged)
           sdk.wallet.ethProvider.on('accountsChanged', handleAccountsChanged)
@@ -105,7 +128,7 @@ export default function Demo() {
     }
   }, [isSDKLoaded])
 
-  // Handle wallet connection
+  // Handle wallet connection with better error handling
   const handleConnect = useCallback(async () => {
     try {
       await connectWallet({
@@ -114,7 +137,19 @@ export default function Demo() {
       })
     } catch (e) {
       logger.error('Wallet connection error:', e)
-      setError(e instanceof Error ? e.message : 'Failed to connect wallet')
+      if (e instanceof Error) {
+        if (e.message.includes('user rejected')) {
+          setError('Connection rejected by user')
+        } else if (e.message.includes('chain')) {
+          setError('Please switch to Base network')
+        } else if (e.message.includes('provider')) {
+          setError('Provider error: Please try again')
+        } else {
+          setError(`Connection failed: ${e.message}`)
+        }
+      } else {
+        setError('Failed to connect wallet')
+      }
     }
   }, [connectWallet])
 
