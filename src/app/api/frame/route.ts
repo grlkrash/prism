@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
-import { analyzeToken, getPersonalizedFeed, type Cast, tokenDatabase } from '@/utils/mbdAi'
+import { analyzeToken, getPersonalizedFeed, type Cast, tokenDatabase, validateFrameRequest } from '@/utils/mbdAi'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 import { OpenAI } from 'openai'
 import { randomUUID } from 'crypto'
@@ -124,44 +124,48 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
+    const { isValid, message } = await validateFrameRequest(req)
     
-    // Validate frame message using Hub API
-    const hubResponse = await fetch(`${process.env.NEXT_PUBLIC_FARCASTER_HUB_URL}/v1/validateMessage`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    })
-
-    const validation = await hubResponse.json()
-    if (!validation.valid || !validation.message) {
+    if (!isValid || !message) {
       return new Response('Invalid frame message', { status: 400 })
     }
 
     // Extract data from validated message
-    const { frameActionBody } = validation.message.data
-    const { buttonIndex, inputText } = frameActionBody
-    const fid = validation.message.data.fid
+    const { button: buttonIndex } = message
+    const fid = message.fid
     
     // Get recommendations from both AI agent and MBD AI
     const [agentResults, mbdResults] = await Promise.allSettled([
       FEATURE_FLAGS.ENABLE_AGENT_CHAT 
         ? sendMessage({
             message: 'Recommend cultural tokens for discovery',
-            userId: fid.toString(),
+            userId: fid?.toString() || 'anonymous',
             context: { view: 'feed' }
           })
-        : Promise.resolve(null),
-      getPersonalizedFeed(fid.toString())
+        : Promise.reject('Agent chat disabled'),
+      getPersonalizedFeed()
     ])
 
     let combinedTokens = []
 
     // Process AI agent results
     if (FEATURE_FLAGS.ENABLE_AGENT_CHAT && agentResults.status === 'fulfilled' && agentResults.value?.recommendations) {
-      combinedTokens.push(...agentResults.value.recommendations)
+      combinedTokens.push(...agentResults.value.recommendations.map(rec => ({
+        hash: rec.symbol,
+        text: rec.description,
+        author: {
+          fid: 1,
+          username: rec.name,
+          pfp: undefined
+        },
+        reactions: { likes: 0, recasts: 0 },
+        timestamp: new Date().toISOString(),
+        aiAnalysis: {
+          category: rec.category,
+          aiScore: rec.culturalScore,
+          hasCulturalElements: true
+        }
+      })))
     }
 
     // Process MBD AI results

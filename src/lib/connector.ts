@@ -13,26 +13,56 @@ export function frameConnector() {
     type: frameConnector.type,
 
     async setup() {
-      await this.connect({ chainId: config.chains[0].id })
+      try {
+        // Wait for provider to be available
+        const provider = await this.getProvider()
+        if (!provider) {
+          throw new Error('Provider not available')
+        }
+
+        // Ensure we're on the correct chain
+        await this.connect({ chainId: config.chains[0].id })
+        
+        // Verify provider is ready
+        const isReady = await provider.request({ method: 'eth_chainId' }).then(() => true).catch(() => false)
+        if (!isReady) {
+          throw new Error('Provider not ready')
+        }
+      } catch (error) {
+        console.error('Frame connector setup failed:', error)
+        throw error
+      }
     },
 
     async connect({ chainId } = {}) {
-      const provider = await this.getProvider()
-      const accounts = await provider.request({
-        method: 'eth_requestAccounts',
-      })
+      try {
+        const provider = await this.getProvider()
+        const accounts = await provider.request({
+          method: 'eth_requestAccounts',
+        }).catch((e: any) => {
+          // Handle RPC errors properly
+          if (e?.code) {
+            throw new Error(`RPC Error ${e.code}: ${e.message}`)
+          }
+          throw e
+        })
 
-      let currentChainId = await this.getChainId()
-      if (chainId && currentChainId !== chainId) {
-        const chain = await this.switchChain!({ chainId })
-        currentChainId = chain.id
-      }
+        let currentChainId = await this.getChainId()
+        if (chainId && currentChainId !== chainId) {
+          const chain = await this.switchChain!({ chainId })
+          currentChainId = chain.id
+        }
 
-      connected = true
+        connected = true
 
-      return {
-        accounts: accounts.map((x) => getAddress(x)),
-        chainId: currentChainId,
+        return {
+          accounts: accounts.map((x) => getAddress(x)),
+          chainId: currentChainId,
+        }
+      } catch (error) {
+        console.error('Frame connector connect error:', error)
+        connected = false
+        throw error
       }
     },
 
@@ -50,9 +80,20 @@ export function frameConnector() {
     },
 
     async getChainId() {
-      const provider = await this.getProvider()
-      const hexChainId = await provider.request({ method: 'eth_chainId' })
-      return fromHex(hexChainId, 'number')
+      try {
+        const provider = await this.getProvider()
+        const hexChainId = await provider.request({ method: 'eth_chainId' })
+          .catch((e: any) => {
+            if (e?.code) {
+              throw new Error(`RPC Error ${e.code}: ${e.message}`)
+            }
+            throw e
+          })
+        return fromHex(hexChainId, 'number')
+      } catch (error) {
+        console.error('Frame connector getChainId error:', error)
+        throw error
+      }
     },
 
     async isAuthorized() {
@@ -92,6 +133,10 @@ export function frameConnector() {
     },
 
     async getProvider() {
+      // Wait for provider to be available
+      if (!sdk.wallet.ethProvider) {
+        throw new Error('Frame SDK provider not available')
+      }
       return sdk.wallet.ethProvider
     },
   }))

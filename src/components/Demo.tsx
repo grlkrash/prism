@@ -131,10 +131,34 @@ export default function Demo() {
   // Handle wallet connection with better error handling
   const handleConnect = useCallback(async () => {
     try {
+      if (!sdk.wallet.ethProvider) {
+        logger.error('Provider not available')
+        setError('Wallet provider not available. Please ensure you are using Warpcast.')
+        return
+      }
+
+      if (!isSDKLoaded) {
+        logger.error('SDK not loaded')
+        setError('Frame SDK not initialized. Please wait...')
+        return
+      }
+
+      logger.info('Attempting wallet connection...')
       await connectWallet({
         connector: config.connectors[0],
         chainId: 8453 // Base mainnet
       })
+      
+      // Verify connection was successful
+      const accounts = await sdk.wallet.ethProvider.request({
+        method: 'eth_requestAccounts'
+      })
+      
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No accounts available after connection')
+      }
+
+      logger.info('Wallet connected successfully')
     } catch (e) {
       logger.error('Wallet connection error:', e)
       if (e instanceof Error) {
@@ -151,7 +175,7 @@ export default function Demo() {
         setError('Failed to connect wallet')
       }
     }
-  }, [connectWallet])
+  }, [connectWallet, isSDKLoaded])
 
   // Handle wallet disconnection
   const handleDisconnect = useCallback(async () => {

@@ -203,6 +203,11 @@ export interface Cast {
     recasted: boolean
   }
   labels?: string[]
+  attachments?: Array<{
+    url: string
+    type: string
+    metadata?: any
+  }>
   aiAnalysis?: {
     category: string
     sentiment: number
@@ -212,6 +217,7 @@ export interface Cast {
     artStyle?: string
     isArtwork?: boolean
     hasCulturalElements?: boolean
+    price?: number
   }
   metadata?: {
     culturalScore?: number
@@ -337,55 +343,11 @@ async function makeRequest(endpoint: string, options: RequestInit = {}) {
 
 export async function analyzeToken(tokenId: string): Promise<Token> {
   try {
-    // In development/test mode, return mock data
-    if (process.env.NODE_ENV === 'development' || isTestMode) {
-      const mockToken = tokenDatabase.find(t => t.id.toString() === tokenId) || tokenDatabase[0]
-      return {
-        ...mockToken,
-        aiAnalysis: {
-          culturalScore: 0.8,
-          hasCulturalElements: true,
-          category: mockToken.metadata?.category || 'art',
-          tags: mockToken.metadata?.tags || [],
-          sentiment: 1,
-          popularity: 1,
-          aiScore: 0.8
-        }
-      }
-    }
-
-    // Production API call
-    const response = await fetch(`${API_URL}/tokens/analyze/${tokenId}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`,
-        'X-API-Version': '2'
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`MBD AI request failed: ${response.status}`)
-    }
-
-    const data = await response.json()
-    return data
+    const data = await makeRequest(`/tokens/${tokenId}/analyze`)
+    return data.token
   } catch (error) {
-    logger.error('[MBD AI] Token analysis error:', error)
-    // Return mock data as fallback
-    const mockToken = tokenDatabase.find(t => t.id.toString() === tokenId) || tokenDatabase[0]
-    return {
-      ...mockToken,
-      aiAnalysis: {
-        culturalScore: 0.8,
-        hasCulturalElements: true,
-        category: mockToken.metadata?.category || 'art',
-        tags: mockToken.metadata?.tags || [],
-        sentiment: 1,
-        popularity: 1,
-        aiScore: 0.8
-      }
-    }
+    logger.error('Failed to analyze token:', error)
+    throw error
   }
 }
 
@@ -427,75 +389,55 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
   return contentScore > 0.6 || imageScore > 0.6
 }
 
-export async function getPersonalizedFeed(userId?: string): Promise<MbdApiResponse<FeedResponse>> {
+export async function getPersonalizedFeed(cursor?: string) {
   try {
-    // In development/test mode, return mock data
-    if (process.env.NODE_ENV === 'development' || isTestMode) {
-      return {
-        data: {
-          casts: tokenDatabase.map(token => ({
-            hash: token.id.toString(),
-            author: {
-              fid: 1,
-              username: token.artistName
-            },
-            text: token.description,
-            timestamp: new Date().toISOString(),
-            reactions: { likes: 0, recasts: 0 },
-            aiAnalysis: {
-              hasCulturalElements: true,
-              category: token.metadata?.category || 'art',
-              sentiment: 1,
-              popularity: 1,
-              aiScore: 0.8,
-              culturalContext: token.metadata?.culturalContext || 'digital art'
-            }
-          }))
-        }
-      }
+    if (!API_KEY) {
+      logger.warn('MBD API key not found, using mock data')
+      return { data: { casts: tokenDatabase.map(token => ({
+        hash: token.id.toString(),
+        text: token.description,
+        author: {
+          fid: 1,
+          username: token.artistName,
+          pfp: token.imageUrl
+        },
+        reactions: { likes: 0, recasts: 0 },
+        timestamp: new Date().toISOString(),
+        aiAnalysis: token.aiAnalysis
+      }))} }
     }
 
-    // Production API call
-    const response = await fetch(`${API_URL}/feed/personalized${userId ? `?userId=${userId}` : ''}`, {
+    const url = new URL(`${API_URL}/feed/personalized`)
+    if (cursor) url.searchParams.set('cursor', cursor)
+
+    const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${API_KEY}`,
-        'X-API-Version': '2'
+        'Content-Type': 'application/json'
       }
     })
 
     if (!response.ok) {
-      throw new Error(`MBD AI request failed: ${response.status}`)
+      throw new Error(`Failed to fetch personalized feed: ${response.statusText}`)
     }
 
     const data = await response.json()
     return data
   } catch (error) {
-    logger.error('[MBD AI] Feed error:', error)
-    // Return mock data as fallback
-    return {
-      data: {
-        casts: tokenDatabase.map(token => ({
-          hash: token.id.toString(),
-          author: {
-            fid: 1,
-            username: token.artistName
-          },
-          text: token.description,
-          timestamp: new Date().toISOString(),
-          reactions: { likes: 0, recasts: 0 },
-          aiAnalysis: {
-            hasCulturalElements: true,
-            category: token.metadata?.category || 'art',
-            sentiment: 1,
-            popularity: 1,
-            aiScore: 0.8,
-            culturalContext: token.metadata?.culturalContext || 'digital art'
-          }
-        }))
-      }
-    }
+    logger.error('Error fetching personalized feed:', error)
+    return { data: { casts: tokenDatabase.map(token => ({
+      hash: token.id.toString(),
+      text: token.description,
+      author: {
+        fid: 1,
+        username: token.artistName,
+        pfp: token.imageUrl
+      },
+      reactions: { likes: 0, recasts: 0 },
+      timestamp: new Date().toISOString(),
+      aiAnalysis: token.aiAnalysis
+    }))} }
   }
 }
 

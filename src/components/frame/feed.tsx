@@ -28,86 +28,69 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
         setIsLoading(true)
         setError(null)
 
-        if (!fid) {
-          // If no FID, show initial curated tokens from database
-          const initialTokens: TokenItem[] = tokenDatabase.map(token => ({
-            id: token.id.toString(),
-            name: token.name,
-            symbol: token.symbol,
-            description: token.description,
-            price: typeof token.price === 'string' ? parseFloat(token.price) : token.price,
-            imageUrl: token.imageUrl,
-            artistName: token.artistName,
-            culturalScore: token.culturalScore,
-            metadata: {
-              ...token.metadata,
-              category: token.metadata?.category || token.aiAnalysis?.category,
-              aiScore: token.aiAnalysis?.aiScore,
-              authorFid: token.id.toString(),
-              authorUsername: token.artistName,
-              timestamp: Date.now()
-            },
-            social: token.social
-          }))
-          setTokens(initialTokens)
-          setHasMore(false)
-          return
-        }
-
-        // Get personalized feed with AI agent recommendations
-        const feed = await getPersonalizedFeed(fid.toString())
+        // Always try to fetch real data first
+        const feed = await getPersonalizedFeed(fid?.toString() || 'default')
         
-        if (!feed?.casts?.length) {
-          const initialTokens: TokenItem[] = tokenDatabase.map(token => ({
-            id: token.id.toString(),
-            name: token.name,
-            symbol: token.symbol,
-            description: token.description,
-            price: typeof token.price === 'string' ? parseFloat(token.price) : token.price,
-            imageUrl: token.imageUrl,
-            artistName: token.artistName,
-            culturalScore: token.culturalScore,
+        if (feed?.casts?.length) {
+          logger.info('Loaded real token data:', {
+            count: feed.casts.length,
+            hasCursor: !!feed.next?.cursor
+          })
+
+          const feedTokens = feed.casts.map((cast: Cast) => ({
+            id: cast.hash,
+            name: cast.author.username,
+            symbol: cast.aiAnalysis?.category || 'ART',
+            description: cast.text,
+            imageUrl: typeof cast.author.pfp === 'string' ? cast.author.pfp : cast.attachments?.[0]?.url || 'https://placehold.co/300x300.png',
+            price: cast.aiAnalysis?.price || 0.1,
+            culturalScore: cast.aiAnalysis?.aiScore || 0.8,
             metadata: {
-              ...token.metadata,
-              category: token.metadata?.category || token.aiAnalysis?.category,
-              aiScore: token.aiAnalysis?.aiScore,
-              authorFid: token.id.toString(),
-              authorUsername: token.artistName,
-              timestamp: Date.now()
-            },
-            social: token.social
+              authorFid: cast.author.fid.toString(),
+              authorUsername: cast.author.username,
+              timestamp: new Date(cast.timestamp).getTime(),
+              category: cast.aiAnalysis?.category,
+              aiScore: cast.aiAnalysis?.aiScore,
+              likes: cast.reactions.likes,
+              recasts: cast.reactions.recasts
+            }
           }))
-          setTokens(initialTokens)
-          setHasMore(false)
+
+          setTokens(feedTokens)
+          setCursor(feed.next?.cursor || null)
+          setHasMore(!!feed.next?.cursor)
           return
         }
 
-        const feedTokens = feed.casts.map((cast: Cast) => ({
-          id: cast.hash,
-          name: cast.author.username,
-          symbol: cast.aiAnalysis?.category || 'ART',
-          description: cast.text,
-          imageUrl: cast.author.pfp || 'https://placehold.co/300x300.png',
-          price: 0.1,
-          culturalScore: cast.aiAnalysis?.aiScore || 0.8,
+        // Only use mock data if real data fetch fails or returns empty
+        logger.warn('No real data available, falling back to mock data')
+        const initialTokens: TokenItem[] = tokenDatabase.map(token => ({
+          id: token.id.toString(),
+          name: token.name,
+          symbol: token.symbol,
+          description: token.description,
+          price: typeof token.price === 'string' ? parseFloat(token.price) : token.price,
+          imageUrl: token.imageUrl,
+          artistName: token.artistName,
+          culturalScore: token.culturalScore,
           metadata: {
-            authorFid: cast.author.fid.toString(),
-            authorUsername: cast.author.username,
-            timestamp: new Date(cast.timestamp).getTime(),
-            category: cast.aiAnalysis?.category,
-            aiScore: cast.aiAnalysis?.aiScore,
-            likes: cast.reactions.likes,
-            recasts: cast.reactions.recasts
-          }
+            ...token.metadata,
+            category: token.metadata?.category || token.aiAnalysis?.category,
+            aiScore: token.aiAnalysis?.aiScore,
+            authorFid: token.id.toString(),
+            authorUsername: token.artistName,
+            timestamp: Date.now()
+          },
+          social: token.social
         }))
-
-        setTokens(feedTokens)
-        setCursor(feed.next?.cursor || null)
-        setHasMore(!!feed.next?.cursor)
+        setTokens(initialTokens)
+        setHasMore(false)
       } catch (error) {
         logger.error('Error loading tokens:', error)
         setError(error instanceof Error ? error.message : 'Failed to load tokens')
-        // Fallback to curated tokens on error
+        
+        // Use mock data as fallback
+        logger.warn('Error fetching real data, falling back to mock data')
         const initialTokens: TokenItem[] = tokenDatabase.map(token => ({
           id: token.id.toString(),
           name: token.name,
@@ -154,8 +137,8 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
         name: cast.author.username,
         symbol: cast.aiAnalysis?.category || 'ART',
         description: cast.text,
-        imageUrl: cast.author.pfp || 'https://placehold.co/300x300.png',
-        price: 0.1,
+        imageUrl: typeof cast.author.pfp === 'string' ? cast.author.pfp : cast.attachments?.[0]?.url || 'https://placehold.co/300x300.png',
+        price: cast.aiAnalysis?.price || 0.1,
         culturalScore: cast.aiAnalysis?.aiScore || 0.8,
         metadata: {
           authorFid: cast.author.fid.toString(),

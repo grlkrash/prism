@@ -7,6 +7,8 @@ import { getPersonalizedFeed } from './feed'
 import { Cast } from './mbdAi'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+const CDP_API_KEY = process.env.CDP_API_KEY_NAME
+const CDP_PRIVATE_KEY = process.env.CDP_API_KEY_PRIVATE_KEY
 
 interface TokenMention {
   tokenId: string
@@ -121,30 +123,44 @@ export async function getReferrals(userId: string): Promise<Referral[]> {
   return []
 }
 
-export async function sendMessage({ message, userId, context }: SendMessageParams): Promise<AgentResponse> {
+export async function sendMessage(params: SendMessageParams): Promise<AgentResponse> {
   try {
-    const url = new URL('/api/agent', API_BASE_URL)
-    
-    const response = await fetch(url.toString(), {
+    if (!CDP_API_KEY || !CDP_PRIVATE_KEY) {
+      logger.warn('CDP API configuration missing, using fallback response')
+      return {
+        response: 'I apologize, but I cannot process your request at the moment.',
+        recommendations: [],
+        actions: []
+      }
+    }
+
+    const response = await fetch('/api/agent', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CDP-API-Key': CDP_API_KEY,
+        'X-CDP-Private-Key': CDP_PRIVATE_KEY
       },
-      body: JSON.stringify({
-        message,
-        userId,
-        context,
-      }),
+      body: JSON.stringify(params)
     })
 
     if (!response.ok) {
-      throw new Error(`Agent request failed: ${response.statusText}`)
+      throw new AgentkitError(`Agent request failed: ${response.statusText}`, response.status)
     }
 
-    return await response.json()
+    const data = await response.json()
+    return {
+      response: data.message || data.response || '',
+      recommendations: data.recommendations || [],
+      actions: data.actions || []
+    }
   } catch (error) {
-    console.error('[ERROR] Agent error:', error)
-    throw error
+    logger.error('Agent error:', error)
+    return {
+      response: 'An error occurred while processing your request.',
+      recommendations: [],
+      actions: []
+    }
   }
 }
 
