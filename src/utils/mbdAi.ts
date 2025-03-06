@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { logger } from './logger'
 import { MBD_AI_CONFIG, isTestMode } from '@/config/mbdAi'
+import { randomUUID } from 'crypto'
 
 // Remove direct API key access since we're using the proxy
 const API_URL = process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2'
@@ -203,11 +204,6 @@ export interface Cast {
     recasted: boolean
   }
   labels?: string[]
-  attachments?: Array<{
-    url: string
-    type: string
-    metadata?: any
-  }>
   aiAnalysis?: {
     category: string
     sentiment: number
@@ -217,7 +213,6 @@ export interface Cast {
     artStyle?: string
     isArtwork?: boolean
     hasCulturalElements?: boolean
-    price?: number
   }
   metadata?: {
     culturalScore?: number
@@ -389,55 +384,75 @@ function determineIfCulturalToken(contentAnalysis: any, imageAnalysis: any): boo
   return contentScore > 0.6 || imageScore > 0.6
 }
 
-export async function getPersonalizedFeed(cursor?: string) {
+export async function getPersonalizedFeed(): Promise<MbdApiResponse<FeedResponse>> {
   try {
-    if (!API_KEY) {
-      logger.warn('MBD API key not found, using mock data')
-      return { data: { casts: tokenDatabase.map(token => ({
-        hash: token.id.toString(),
-        text: token.description,
-        author: {
-          fid: 1,
-          username: token.artistName,
-          pfp: token.imageUrl
-        },
-        reactions: { likes: 0, recasts: 0 },
-        timestamp: new Date().toISOString(),
-        aiAnalysis: token.aiAnalysis
-      }))} }
+    if (!process.env.MBD_API_KEY || !process.env.MBD_AI_API_URL) {
+      logger.warn('MBD AI configuration missing, using mock data')
+      return {
+        data: {
+          casts: tokenDatabase.map(token => ({
+            hash: token.symbol || randomUUID(),
+            text: token.description || '',
+            author: {
+              fid: 1,
+              username: token.name || 'Unknown',
+            },
+            reactions: { likes: 0, recasts: 0 },
+            timestamp: new Date().toISOString(),
+            aiAnalysis: {
+              category: token.metadata?.category || 'art',
+              sentiment: 0.8,
+              popularity: 0.7,
+              aiScore: 0.8,
+              culturalContext: token.metadata?.culturalContext || 'Contemporary digital art',
+              artStyle: token.metadata?.artStyle,
+              isArtwork: true,
+              hasCulturalElements: true
+            }
+          })),
+          next: undefined
+        }
+      }
     }
 
-    const url = new URL(`${API_URL}/feed/personalized`)
-    if (cursor) url.searchParams.set('cursor', cursor)
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${API_KEY}`,
-        'Content-Type': 'application/json'
-      }
+    // Real API call implementation
+    const response = await fetch(`${process.env.MBD_AI_API_URL}/feed/personalized`, {
+      headers: MBD_AI_CONFIG.getHeaders()
     })
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch personalized feed: ${response.statusText}`)
+      throw new Error(`Failed to fetch feed: ${response.statusText}`)
     }
 
     const data = await response.json()
     return data
   } catch (error) {
-    logger.error('Error fetching personalized feed:', error)
-    return { data: { casts: tokenDatabase.map(token => ({
-      hash: token.id.toString(),
-      text: token.description,
-      author: {
-        fid: 1,
-        username: token.artistName,
-        pfp: token.imageUrl
-      },
-      reactions: { likes: 0, recasts: 0 },
-      timestamp: new Date().toISOString(),
-      aiAnalysis: token.aiAnalysis
-    }))} }
+    logger.error('Error fetching feed, using mock data:', error)
+    return {
+      data: {
+        casts: tokenDatabase.map(token => ({
+          hash: token.symbol || randomUUID(),
+          text: token.description || '',
+          author: {
+            fid: 1,
+            username: token.name || 'Unknown',
+          },
+          reactions: { likes: 0, recasts: 0 },
+          timestamp: new Date().toISOString(),
+          aiAnalysis: {
+            category: token.metadata?.category || 'art',
+            sentiment: 0.8,
+            popularity: 0.7,
+            aiScore: 0.8,
+            culturalContext: token.metadata?.culturalContext || 'Contemporary digital art',
+            artStyle: token.metadata?.artStyle,
+            isArtwork: true,
+            hasCulturalElements: true
+          }
+        })),
+        next: undefined
+      }
+    }
   }
 }
 
@@ -601,43 +616,34 @@ export interface FrameMessage {
   fid?: string
 }
 
-export async function validateFrameRequest(req: NextRequest): Promise<{ isValid: boolean, message?: FrameMessage }> {
+export async function validateFrameRequest(req: NextRequest) {
   try {
-    // In development, allow all requests with test data
-    if (process.env.NODE_ENV === 'development') {
-      return {
-        isValid: true,
-        message: {
-          button: 1,
-          fid: 'test-user-123'
-        }
-      }
-    }
-
     const body = await req.json()
-    
-    // Basic validation for required fields
-    if (!body || !body.untrustedData) {
+
+    // Validate required fields
+    if (!body?.untrustedData?.buttonIndex || !body?.trustedData?.messageBytes) {
       return { isValid: false }
     }
 
-    const buttonIndex = body.untrustedData.buttonIndex
-    const fid = body.untrustedData.fid
-
-    // Validate button index is between 1-4
-    if (!buttonIndex || buttonIndex < 1 || buttonIndex > 4) {
-      return { isValid: false }
-    }
-
-    return {
-      isValid: true,
-      message: {
-        button: buttonIndex,
-        fid: fid || 'test-user-123'
+    // Decode and validate message bytes
+    try {
+      const messageBytes = Buffer.from(body.trustedData.messageBytes, 'base64')
+      const message = {
+        button: body.untrustedData.buttonIndex,
+        inputText: body.untrustedData.inputText,
+        castId: body.untrustedData.castId,
+        url: body.untrustedData.url,
+        messageHash: messageBytes.toString('hex'),
+        fid: body.trustedData.fid,
+        timestamp: body.trustedData.timestamp
       }
+      return { isValid: true, message }
+    } catch (error) {
+      logger.error('Error decoding message bytes:', error)
+      return { isValid: false }
     }
   } catch (error) {
-    console.error('Frame validation error:', error)
+    logger.error('Error validating frame request:', error)
     return { isValid: false }
   }
 }

@@ -2,17 +2,23 @@ import { AgentRequest, AgentResponse, agentRequestSchema, agentResponseSchema, g
 import { logger } from './logger'
 import { analyzeToken, Token } from './mbdAi'
 import { HumanMessage } from "@langchain/core/messages"
-import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions } from './farcaster'
+import { getFarcasterFollowing, getFarcasterCasts, extractTokenMentions, getTokenMentions } from './farcaster'
 import { getPersonalizedFeed } from './feed'
 import { Cast } from './mbdAi'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-const CDP_API_KEY = process.env.CDP_API_KEY_NAME
-const CDP_PRIVATE_KEY = process.env.CDP_API_KEY_PRIVATE_KEY
+const CDP_API_KEY = process.env.CDP_API_KEY_NAME || process.env.AGENTKIT_API_KEY
+const CDP_PRIVATE_KEY = process.env.CDP_API_KEY_PRIVATE_KEY || process.env.FARCASTER_PRIVATE_KEY
 
 interface TokenMention {
   tokenId: string
   category?: string
+  socialContext?: {
+    mentions: number
+    reactions: number
+  }
+  culturalScore?: number
+  analysis?: Token
 }
 
 interface SendMessageParams {
@@ -123,14 +129,55 @@ export async function getReferrals(userId: string): Promise<Referral[]> {
   return []
 }
 
+// Default fallback token for error cases
+const fallbackToken: Token = {
+  id: 'fallback-1',
+  name: 'Example Cultural Token',
+  symbol: 'CULTURE',
+  description: 'A demonstration cultural token for testing purposes',
+  imageUrl: 'https://example.com/token.jpg',
+  artistName: 'Demo Artist',
+  price: '0.1 ETH',
+  culturalScore: 80,
+  tokenType: 'ERC20',
+  aiAnalysis: {
+    culturalScore: 80,
+    hasCulturalElements: true,
+    category: 'art',
+    tags: ['demo', 'cultural'],
+    sentiment: 'positive',
+    popularity: 0.8,
+    aiScore: 0.85
+  }
+}
+
 export async function sendMessage(params: SendMessageParams): Promise<AgentResponse> {
   try {
+    // Check for required API keys
     if (!CDP_API_KEY || !CDP_PRIVATE_KEY) {
       logger.warn('CDP API configuration missing, using fallback response')
       return {
-        response: 'I apologize, but I cannot process your request at the moment.',
-        recommendations: [],
+        response: 'I apologize, but I cannot process your request at the moment. Please check API configuration.',
+        recommendations: [fallbackToken],
         actions: []
+      }
+    }
+
+    // Get Farcaster context if available
+    let farcasterContext = {}
+    if (process.env.FARCASTER_API_KEY && params.userId) {
+      try {
+        const [following, casts] = await Promise.all([
+          getFarcasterFollowing(params.userId),
+          getFarcasterCasts(params.userId, 10)
+        ])
+        farcasterContext = {
+          following,
+          recentCasts: casts,
+          fid: params.userId
+        }
+      } catch (error) {
+        logger.error('Failed to get Farcaster context:', error)
       }
     }
 
@@ -139,9 +186,18 @@ export async function sendMessage(params: SendMessageParams): Promise<AgentRespo
       headers: {
         'Content-Type': 'application/json',
         'X-CDP-API-Key': CDP_API_KEY,
-        'X-CDP-Private-Key': CDP_PRIVATE_KEY
+        'X-CDP-Private-Key': CDP_PRIVATE_KEY,
+        'X-Farcaster-API-Key': process.env.FARCASTER_API_KEY || ''
       },
-      body: JSON.stringify(params)
+      body: JSON.stringify({
+        ...params,
+        context: {
+          ...params.context,
+          ...farcasterContext,
+          cdpApiKey: CDP_API_KEY,
+          cdpPrivateKey: CDP_PRIVATE_KEY
+        }
+      })
     })
 
     if (!response.ok) {
@@ -149,16 +205,41 @@ export async function sendMessage(params: SendMessageParams): Promise<AgentRespo
     }
 
     const data = await response.json()
+    
+    // Enhance recommendations with Farcaster data if available
+    let recommendations = data.recommendations || []
+    if (process.env.FARCASTER_API_KEY && recommendations.length > 0) {
+      try {
+        const enhancedRecommendations = await Promise.all(
+          recommendations.map(async (rec: Token) => {
+            const mentions = await getTokenMentions(rec.symbol, 5)
+            return {
+              ...rec,
+              socialContext: {
+                mentions: mentions.length,
+                reactions: mentions.reduce((sum: number, cast: { reactions: { likes: number; recasts: number } }) => 
+                  sum + cast.reactions.likes + cast.reactions.recasts, 0
+                )
+              }
+            }
+          })
+        )
+        recommendations = enhancedRecommendations
+      } catch (error) {
+        logger.error('Failed to enhance recommendations with Farcaster data:', error)
+      }
+    }
+
     return {
       response: data.message || data.response || '',
-      recommendations: data.recommendations || [],
+      recommendations,
       actions: data.actions || []
     }
   } catch (error) {
     logger.error('Agent error:', error)
     return {
       response: 'An error occurred while processing your request.',
-      recommendations: [],
+      recommendations: [fallbackToken],
       actions: []
     }
   }

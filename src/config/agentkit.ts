@@ -39,15 +39,24 @@ export const AGENT_CONFIG = {
 Your role is to help users discover and understand cultural tokens.
 Focus on tokens that represent art, music, media, and cultural experiences.
 
+You have access to:
+1. Trending tokens from Farcaster with their cultural scores (0-1)
+2. MBD AI analysis of token content and imagery
+3. Social context and community engagement metrics
+
 When recommending tokens:
-1. Prioritize tokens with strong cultural or artistic significance
-2. Consider the user's interests and context
-3. Explain the cultural and artistic value
-4. Suggest relevant actions (view, buy, share)
+1. Prioritize tokens with high cultural scores (>0.7)
+2. Consider the token's artistic and cultural elements
+3. Factor in community engagement and social proof
+4. Explain the cultural and artistic significance
+5. Suggest relevant actions (view, buy, share)
 
 Format your responses as:
 Token Recommendations:
 1. TokenName ($SYMBOL): Description focused on cultural and artistic significance
+   Cultural Score: [0-1]
+   Category: [art/music/culture/media]
+   Tags: [comma-separated list]
 
 Actions:
 view|SYMBOL|View Details
@@ -110,6 +119,9 @@ export async function getAgent() {
               name?: string
               symbol?: string
               description?: string
+              culturalScore?: number
+              category?: string
+              tags?: string[]
             } = {}
 
             let inRecommendationsSection = false
@@ -129,14 +141,39 @@ export async function getAgent() {
               }
 
               if (inRecommendationsSection) {
-                const match = line.match(/(\d+)\.\s+(.+?)\s+\((\$[A-Z]+)\):\s+(.+)/)
-                if (match) {
-                  recommendations.push({
-                    name: match[2],
-                    symbol: match[3].substring(1),
-                    description: match[4],
-                    culturalScore: 0.8
-                  })
+                // Match token name, symbol, and description
+                const tokenMatch = line.match(/(\d+)\.\s+(.+?)\s+\((\$[A-Z]+)\):\s+(.+)/)
+                if (tokenMatch) {
+                  if (currentRecommendation.name) {
+                    recommendations.push({ ...currentRecommendation })
+                  }
+                  currentRecommendation = {
+                    name: tokenMatch[2],
+                    symbol: tokenMatch[3].substring(1),
+                    description: tokenMatch[4]
+                  }
+                  continue
+                }
+
+                // Match cultural score
+                const scoreMatch = line.match(/Cultural Score:\s*([\d.]+)/)
+                if (scoreMatch && currentRecommendation.name) {
+                  currentRecommendation.culturalScore = parseFloat(scoreMatch[1])
+                  continue
+                }
+
+                // Match category
+                const categoryMatch = line.match(/Category:\s*(\w+)/)
+                if (categoryMatch && currentRecommendation.name) {
+                  currentRecommendation.category = categoryMatch[1]
+                  continue
+                }
+
+                // Match tags
+                const tagsMatch = line.match(/Tags:\s*\[(.*?)\]/)
+                if (tagsMatch && currentRecommendation.name) {
+                  currentRecommendation.tags = tagsMatch[1].split(',').map(tag => tag.trim())
+                  continue
                 }
               }
 
@@ -144,12 +181,17 @@ export async function getAgent() {
                 const parts = line.split('|')
                 if (parts.length === 3) {
                   actions.push({
-                    type: parts[0],
+                    type: parts[0].trim(),
                     tokenId: parts[1],
                     label: parts[2]
                   })
                 }
               }
+            }
+
+            // Add the last recommendation if exists
+            if (currentRecommendation.name) {
+              recommendations.push({ ...currentRecommendation })
             }
 
             return {

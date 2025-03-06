@@ -61,9 +61,9 @@ function generateFrameHtml({
   errorMessage?: string
 }) {
   const buttons = token ? [
-    { text: 'View Details', action: 'view' },
-    { text: 'Buy Token', action: 'buy' },
-    { text: 'Share', action: 'share' },
+    { text: `View ${token.symbol || 'Token'}`, action: 'view' },
+    { text: `Buy (${token.price || 'N/A'} ETH)`, action: 'buy' },
+    { text: `Share ${token.aiAnalysis?.category || 'Token'}`, action: 'share' },
     { text: 'Next', action: 'next' }
   ] : [
     { text: 'Discover', action: 'discover' },
@@ -72,9 +72,17 @@ function generateFrameHtml({
     { text: 'Refresh', action: 'refresh' }
   ]
 
-  const title = token ? `${token.name || 'Unknown Token'} (${token.symbol || 'N/A'})` : 'Prism: Cultural Tokens'
+  const title = token ? 
+    `${token.name || 'Unknown Token'} (${token.symbol || 'N/A'}) - Score: ${(token.aiAnalysis?.aiScore || 0).toFixed(2)}` : 
+    'Prism: Cultural Tokens'
+
   const description = errorMessage || (token ? 
-    `${token.description || 'No description available'}\n\nPrice: ${token.price || 'N/A'} ETH` : 
+    `${token.description || 'No description available'}\n\n` +
+    `Category: ${token.aiAnalysis?.category || 'Unknown'}\n` +
+    `Cultural Score: ${(token.aiAnalysis?.aiScore || 0).toFixed(2)}\n` +
+    `Social: ${token.reactions?.likes || 0} likes, ${token.reactions?.recasts || 0} recasts\n` +
+    `${token.aiAnalysis?.gptAnalysis ? '\nAnalysis: ' + token.aiAnalysis.gptAnalysis : ''}\n\n` +
+    `Price: ${token.price || 'N/A'} ETH` : 
     'Discover cultural tokens in art')
 
   return `<!DOCTYPE html>
@@ -127,12 +135,20 @@ export async function POST(req: NextRequest) {
     const { isValid, message } = await validateFrameRequest(req)
     
     if (!isValid || !message) {
-      return new Response('Invalid frame message', { status: 400 })
+      logger.error('Invalid frame message')
+      return new Response(generateFrameHtml({
+        postUrl: req.url,
+        errorMessage: 'Invalid frame message'
+      }), {
+        headers: { 'Content-Type': 'text/html' }
+      })
     }
 
     // Extract data from validated message
     const { button: buttonIndex } = message
     const fid = message.fid
+    const buttonActions = ['discover', 'popular', 'new', 'refresh', 'view', 'buy', 'share', 'next']
+    const selectedAction = buttonActions[buttonIndex - 1] || 'discover'
     
     // Get recommendations from both AI agent and MBD AI
     const [agentResults, mbdResults] = await Promise.allSettled([
@@ -140,10 +156,19 @@ export async function POST(req: NextRequest) {
         ? sendMessage({
             message: 'Recommend cultural tokens for discovery',
             userId: fid?.toString() || 'anonymous',
-            context: { view: 'feed' }
+            context: { 
+              view: 'feed',
+              action: selectedAction
+            }
+          }).catch(error => {
+            logger.error('Agent chat error:', error)
+            return null
           })
         : Promise.reject('Agent chat disabled'),
-      getPersonalizedFeed()
+      getPersonalizedFeed().catch(error => {
+        logger.error('Feed error:', error)
+        return null
+      })
     ])
 
     let combinedTokens = []
@@ -153,6 +178,10 @@ export async function POST(req: NextRequest) {
       combinedTokens.push(...agentResults.value.recommendations.map(rec => ({
         hash: rec.symbol,
         text: rec.description,
+        name: rec.name,
+        symbol: rec.symbol,
+        description: rec.description,
+        price: '0.001', // Example price, should be fetched from price feed
         author: {
           fid: 1,
           username: rec.name,
@@ -163,7 +192,8 @@ export async function POST(req: NextRequest) {
         aiAnalysis: {
           category: rec.category,
           aiScore: rec.culturalScore,
-          hasCulturalElements: true
+          hasCulturalElements: true,
+          tags: rec.tags
         }
       })))
     }
@@ -178,7 +208,7 @@ export async function POST(req: NextRequest) {
               messages: [
                 {
                   role: "system",
-                  content: "You are an expert in analyzing cultural tokens and art content."
+                  content: "You are an expert in analyzing cultural tokens and art content. Provide a brief, engaging analysis focusing on cultural and artistic significance."
                 },
                 {
                   role: "user",
@@ -189,11 +219,23 @@ export async function POST(req: NextRequest) {
               max_tokens: 150
             })
 
+            // Extract token details from cast text
+            const tokenMatch = cast.text.match(/\$([A-Z]+)/)
+            const symbol = tokenMatch ? tokenMatch[1] : 'TOKEN'
+            
             return {
               ...cast,
+              name: cast.author.username || 'Unknown Token',
+              symbol,
+              description: cast.text,
+              price: '0.001', // Example price, should be fetched from price feed
               aiAnalysis: {
                 ...cast.aiAnalysis,
-                gptAnalysis: analysis.choices[0]?.message?.content || ''
+                gptAnalysis: analysis.choices[0]?.message?.content || '',
+                tags: analysis.choices[0]?.message?.content
+                  ?.toLowerCase()
+                  .match(/#\w+/g)
+                  ?.map(tag => tag.slice(1)) || []
               }
             }
           } catch (error) {
@@ -206,19 +248,61 @@ export async function POST(req: NextRequest) {
       combinedTokens.push(...enhancedCasts)
     }
 
+    // Sort tokens by AI score and social engagement
+    combinedTokens.sort((a, b) => {
+      const scoreA = (a.aiAnalysis?.aiScore || 0) * 0.7 + 
+        ((a.reactions?.likes || 0) + (a.reactions?.recasts || 0) * 2) * 0.3
+      const scoreB = (b.aiAnalysis?.aiScore || 0) * 0.7 + 
+        ((b.reactions?.likes || 0) + (b.reactions?.recasts || 0) * 2) * 0.3
+      return scoreB - scoreA
+    })
+
+    // Handle button actions
+    let selectedToken
+    let currentIndex = 0
+
+    switch (selectedAction) {
+      case 'discover':
+        selectedToken = combinedTokens[0]
+        break
+      case 'popular':
+        selectedToken = combinedTokens.sort((a, b) => 
+          ((b.reactions?.likes || 0) + (b.reactions?.recasts || 0)) - 
+          ((a.reactions?.likes || 0) + (a.reactions?.recasts || 0))
+        )[0]
+        break
+      case 'new':
+        selectedToken = combinedTokens.sort((a, b) => 
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        )[0]
+        break
+      case 'next':
+        // Get current token from state or use first token
+        const currentHash = message.inputText // Assuming we store current hash in inputText
+        currentIndex = currentHash ? 
+          combinedTokens.findIndex(t => t.hash === currentHash) : -1
+        selectedToken = combinedTokens[(currentIndex + 1) % combinedTokens.length] || combinedTokens[0]
+        break
+      default:
+        selectedToken = combinedTokens[0]
+    }
+
+    // Use fallback token if no recommendations available
+    if (!selectedToken) {
+      selectedToken = tokenDatabase[0]
+    }
+
     // Generate frame response
     return new Response(
-      `<!DOCTYPE html>
-      <html>
-        <head>
-          <title>Cultural Token Discovery</title>
-          <meta property="fc:frame" content="vNext" />
-          <meta property="fc:frame:image" content="https://example.com/token-gallery.png" />
-          <meta property="fc:frame:button:1" content="View More" />
-          <meta property="fc:frame:button:2" content="Get Recommendations" />
-          <meta property="fc:frame:post_url" content="${process.env.NEXT_PUBLIC_APP_URL}/api/frame" />
-        </head>
-      </html>`,
+      generateFrameHtml({
+        postUrl: process.env.NEXT_PUBLIC_APP_URL + '/api/frame',
+        token: selectedToken,
+        imageUrl: 'selectedToken' in selectedToken && selectedToken.imageUrl ? 
+          selectedToken.imageUrl : 
+          selectedToken.author?.pfp || 'https://placehold.co/1200x630/png',
+        recommendations: combinedTokens,
+        errorMessage: combinedTokens.length === 0 ? 'No recommendations available' : undefined
+      }),
       {
         headers: {
           'Content-Type': 'text/html',
@@ -229,8 +313,14 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     logger.error('Error in frame route:', error)
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500 }
+      generateFrameHtml({
+        postUrl: req.url,
+        errorMessage: 'Something went wrong. Please try again later.',
+        imageUrl: 'https://placehold.co/1200x630/png?text=Error'
+      }), 
+      {
+        headers: { 'Content-Type': 'text/html' }
+      }
     )
   }
 } 
