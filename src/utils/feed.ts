@@ -16,9 +16,9 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
   try {
     // 1. Try AI Agent first
     try {
+      logger.info('Attempting to fetch AI Agent recommendations')
       const agent = await getAgent()
       const agentResponse = await sendMessage({
-        message: 'Get personalized cultural token feed',
         userId: fid,
         context: {
           cursor,
@@ -30,6 +30,11 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
             }
           }
         }
+      })
+
+      logger.info('AI Agent response received:', { 
+        hasRecommendations: !!agentResponse?.recommendations,
+        recommendationCount: agentResponse?.recommendations?.length 
       })
 
       // Safely check recommendations existence and length
@@ -50,8 +55,8 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
           reactions: { likes: 0, recasts: 0 },
           aiAnalysis: {
             category: rec.category || 'art',
-            sentiment: 1, // Default sentiment
-            popularity: 1, // Default popularity
+            sentiment: 1,
+            popularity: 1,
             aiScore: rec.culturalScore || 0.8,
             culturalContext: rec.description || 'Cultural token',
             artStyle: rec.tags?.[0],
@@ -60,18 +65,26 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
           }
         }))
 
+        logger.info('Successfully converted AI recommendations to casts:', { count: casts.length })
         return {
           casts,
           next: cursor ? { cursor } : undefined
         }
       }
     } catch (agentError) {
-      logger.warn('AI Agent feed failed, falling back to MBD AI:', agentError)
+      logger.error('AI Agent feed failed:', { error: agentError, fid })
     }
 
     // 2. Try MBD AI as fallback
+    logger.info('Attempting to fetch MBD AI feed')
     const endpoint = `/feed?fid=${fid}&limit=20${cursor ? `&cursor=${cursor}` : ''}`
     const response = await farcasterRequest(endpoint)
+
+    logger.info('MBD AI feed response received:', { 
+      hasResponse: !!response,
+      hasCasts: !!response?.casts,
+      castCount: response?.casts?.length 
+    })
 
     if (!response || !response.casts) {
       logger.error('Invalid MBD AI feed response:', response)
@@ -103,7 +116,7 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
             }
           }
         } catch (error) {
-          logger.error('Error analyzing cast:', error)
+          logger.error('Error analyzing cast:', { error, castHash: cast.hash })
           return cast
         }
       })
@@ -117,14 +130,20 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
       (cast.aiAnalysis?.aiScore || 0) >= MBD_AI_CONFIG.CULTURAL_TOKEN.MIN_CONTENT_SCORE
     )
 
+    logger.info('Successfully filtered cultural casts:', { 
+      totalCasts: culturalCasts.length,
+      filteredCount: filteredCasts.length 
+    })
+
     return {
       casts: filteredCasts,
       next: response.next
     }
   } catch (error) {
-    logger.error('Error fetching feed, using mock data:', error)
+    logger.error('Error fetching feed:', { error, fid })
     
     // 3. Use mock data as final fallback
+    logger.warn('Using mock data as fallback')
     return {
       casts: [{
         hash: 'mock1',
@@ -135,18 +154,21 @@ export async function getPersonalizedFeed(fid: string, cursor?: string): Promise
           displayName: 'Mock Artist',
           pfp: ''
         },
-        text: 'Mock cultural token #1',
-        timestamp: Date.now().toString(),
+        text: 'Mock cultural token',
+        timestamp: new Date().toISOString(),
         reactions: { likes: 0, recasts: 0 },
         aiAnalysis: {
           category: 'art',
-          sentiment: 1,
-          popularity: 1,
+          sentiment: 0.8,
+          popularity: 0.7,
           aiScore: 0.8,
           culturalContext: 'Mock cultural context',
+          artStyle: 'digital',
+          isArtwork: true,
           hasCulturalElements: true
         }
-      }]
+      }],
+      next: undefined
     }
   }
 } 

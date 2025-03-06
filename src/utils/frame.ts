@@ -1,4 +1,4 @@
-import { getFrameMessage, FrameRequest, Message } from '@farcaster/frame-sdk'
+import { FrameRequest, Message } from '@farcaster/frame-sdk'
 import { logger } from './logger'
 
 export interface FrameValidationResult {
@@ -40,28 +40,17 @@ export async function validateFrameRequest(req: Request): Promise<FrameValidatio
       }
     }
 
-    // For production, use Frame SDK validation
-    const { isValid, message } = await getFrameMessage(body)
+    // For production, validate the frame request
+    const frameRequest = body as FrameRequest
     
-    // Log validation result
-    logger.info('[Frame] Validation result:', { isValid, message })
-
-    if (!isValid || !message) {
-      return {
-        isValid: false,
-        error: 'Invalid frame message'
-      }
-    }
-
-    // Extract untrusted data from validated message
-    const { untrustedData } = message
-
-    if (!untrustedData) {
+    if (!frameRequest.untrustedData) {
       return {
         isValid: false,
         error: 'Missing untrusted data'
       }
     }
+
+    const { untrustedData } = frameRequest
 
     return {
       isValid: true,

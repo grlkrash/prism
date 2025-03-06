@@ -18,7 +18,6 @@ npm install @farcaster/frame-sdk agentkit @base-api/web3-sdk framer-motion ether
 # Create a .env.local file with:
 NEXT_PUBLIC_MBD_AI_API_KEY=your_mbd_ai_key
 NEXT_PUBLIC_BASE_RPC_URL=your_base_rpc_url
-AGENTKIT_API_KEY=your_agentkit_key
 ```
 
 ## Project Structure
@@ -116,7 +115,7 @@ async function analyzeToken(tokenData) {
 import { Agent, createAgent } from 'agentkit';
 
 const agent = createAgent({
-  apiKey: process.env.AGENTKIT_API_KEY,
+  apiKey: process.env.CDP_API_KEY_NAME,
   model: 'mbd-ai-model',
   tools: [
     // Define tools for the agent

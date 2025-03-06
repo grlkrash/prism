@@ -7,7 +7,7 @@ import { getPersonalizedFeed } from './feed'
 import { Cast } from './mbdAi'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-const CDP_API_KEY = process.env.CDP_API_KEY_NAME || process.env.AGENTKIT_API_KEY
+const CDP_API_KEY = process.env.CDP_API_KEY_NAME
 const CDP_PRIVATE_KEY = process.env.CDP_API_KEY_PRIVATE_KEY || process.env.FARCASTER_PRIVATE_KEY
 
 interface TokenMention {
@@ -149,7 +149,7 @@ export async function sendMessage(request: AgentRequest): Promise<AgentResponse>
   try {
     const headers = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.AGENTKIT_API_KEY}`,
+      'Authorization': `Bearer ${process.env.CDP_API_KEY_NAME}`,
       'X-API-Version': '2'
     }
 

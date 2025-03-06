@@ -309,37 +309,65 @@ function checkRateLimit(userId: string): boolean {
 }
 
 // Update makeMbdRequest to handle errors better
-async function makeRequest(endpoint: string, options: RequestInit = {}) {
+export async function makeRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   try {
-    const url = endpoint.startsWith('http') ? endpoint : `${MBD_AI_CONFIG.API_URL}${endpoint}`
+    if (!API_KEY) {
+      throw new Error('MBD API key not found')
+    }
+
+    const url = new URL(endpoint, API_URL)
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${API_KEY}`,
+      'X-API-Version': '2',
+      ...options.headers,
+    }
+
+    logger.info(`[MBD AI] Making request to: ${url.toString()}`)
     
-    // Get headers from config
-    const headers = MBD_AI_CONFIG.getHeaders()
-    
-    const response = await fetch(url, {
+    const response = await fetch(url.toString(), {
       ...options,
-      headers: {
-        ...headers,
-        ...options.headers
-      }
+      headers,
     })
 
     if (!response.ok) {
-      logger.error(`MBD AI request failed: ${response.status} ${response.statusText}`)
+      const errorText = await response.text()
+      logger.error(`[MBD AI] Request failed: ${response.status} ${response.statusText}`, {
+        url: url.toString(),
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      })
       throw new Error(`MBD AI request failed: ${response.status}`)
     }
 
-    return await response.json()
+    const data = await response.json()
+    return data
   } catch (error) {
-    logger.error('MBD AI request error:', error)
+    logger.error('[MBD AI] Request error:', error)
     throw error
   }
 }
 
-export async function analyzeToken(tokenId: string): Promise<Token> {
+export async function analyzeToken(token: string): Promise<Token> {
   try {
-    const data = await makeRequest(`/tokens/${tokenId}/analyze`)
-    return data.token
+    const response = await makeRequest<MbdApiResponse<Token>>('/analyze/token', {
+      method: 'POST',
+      body: JSON.stringify({
+        token,
+        options: {
+          includeSocial: true,
+          includeMetadata: true,
+          includeAnalysis: true
+        }
+      })
+    })
+
+    if (response.error) {
+      throw new Error(response.error.message)
+    }
+
+    return response.data
   } catch (error) {
     logger.error('Failed to analyze token:', error)
     throw error
@@ -418,7 +446,7 @@ export async function getPersonalizedFeed(): Promise<MbdApiResponse<FeedResponse
     }
 
     // Real API call implementation
-    const response = await fetch(`${API_URL}/feed/personalized`, {
+    const response = await fetch(`${API_URL}/feed`, {
       headers: {
         'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json'

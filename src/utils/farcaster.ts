@@ -37,9 +37,12 @@ interface FarcasterFollowing {
 
 interface FarcasterCasts {
   casts: FarcasterCast[]
+  next?: {
+    cursor?: string
+  }
 }
 
-const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com'
+const FARCASTER_API_URL = process.env.NEXT_PUBLIC_FARCASTER_API_URL || 'https://api.warpcast.com/v2'
 const FARCASTER_API_KEY = process.env.FARCASTER_API_KEY
 
 export async function farcasterRequest<T>(endpoint: string, options: RequestInit = {}): Promise<FarcasterResponse<T>> {
@@ -51,10 +54,15 @@ export async function farcasterRequest<T>(endpoint: string, options: RequestInit
     const url = new URL(apiEndpoint, FARCASTER_API_URL)
     
     if (!FARCASTER_API_KEY) {
+      logger.error('[Farcaster] API key not found')
       throw new FarcasterError('Farcaster API key not found')
     }
 
     logger.info(`[Farcaster] Requesting: ${url.toString()}`)
+    logger.info('[Farcaster] Headers:', {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer [REDACTED]'
+    })
 
     const response = await fetch(url.toString(), {
       ...options,
@@ -67,14 +75,34 @@ export async function farcasterRequest<T>(endpoint: string, options: RequestInit
 
     if (!response.ok) {
       const errorText = await response.text()
-      logger.error(`[Farcaster] API error: ${response.status} ${response.statusText}`, errorText)
+      logger.error(`[Farcaster] API error: ${response.status} ${response.statusText}`, {
+        url: url.toString(),
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      })
       throw new FarcasterError(`API error: ${response.statusText} - ${errorText}`)
     }
 
     const data = await response.json()
+    logger.info(`[Farcaster] Response received:`, {
+      endpoint,
+      status: response.status,
+      dataKeys: Object.keys(data),
+      hasResult: !!data.result,
+      hasData: !!data.data
+    })
+
+    // Handle both response formats (result and data)
+    if (data.result) {
+      return { data: data.result, next: data.next }
+    }
     return data
   } catch (error) {
-    logger.error('[ERROR] Farcaster request failed:', error)
+    logger.error('[ERROR] Farcaster request failed:', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    })
     throw error instanceof FarcasterError ? error : new FarcasterError(String(error))
   }
 }
@@ -101,72 +129,141 @@ export async function getFarcasterCasts(fid: string | number, limit = 100) {
   }
 }
 
-// Get token mentions
-export async function getTokenMentions(tokenName: string, limit: number = 10): Promise<FarcasterCast[]> {
+// Add cache interface and implementation
+interface TokenMentionsCache {
+  [key: string]: {
+    casts: FarcasterCast[]
+    timestamp: number
+  }
+}
+
+const tokenMentionsCache: TokenMentionsCache = {}
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+// Define cultural keywords first
+const culturalKeywords = [
+  'art', 'artist', 'artwork', 'gallery', 'exhibition', 'digital art', 'nft',
+  'music', 'song', 'album', 'concert', 'sound', 'audio',
+  'culture', 'cultural', 'heritage', 'tradition', 'community',
+  'media', 'video', 'film', 'movie', 'streaming', 'content',
+  'entertainment', 'game', 'gaming', 'sports', 'event',
+  'creative', 'design', 'aesthetic', 'beauty', 'expression'
+]
+
+// Get token mentions with caching
+export async function getTokenMentions(token: string, fid?: number): Promise<FarcasterCast[]> {
   try {
-    if (!FARCASTER_API_KEY) {
-      logger.warn('Farcaster API key not found, using mock data')
-      return [
-        {
-          hash: '0x1',
-          threadHash: '0x1',
-          author: {
-            fid: 1,
-            username: 'artist',
-            displayName: 'Digital Artist',
-            pfp: 'https://example.com/pfp.jpg'
-          },
-          text: `Check out this amazing art token $${tokenName}`,
-          timestamp: Date.now(),
-          reactions: { likes: 10, recasts: 5 }
-        }
-      ]
+    // Use default FID from env if not provided
+    const targetFid = fid || Number(process.env.FARCASTER_FID)
+    if (!targetFid) {
+      throw new FarcasterError('No FID provided and FARCASTER_FID not set in environment')
     }
 
-    // First get trending casts
-    const trendingData = await farcasterRequest<FarcasterCasts>('/feed/trending')
-    const artCasts = trendingData.data.casts || []
+    // Check cache first
+    const cacheKey = `${token}-${targetFid}`
+    const cached = tokenMentionsCache[cacheKey]
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      logger.info(`[Farcaster] Using cached token mentions for ${token}`)
+      return cached.casts
+    }
 
-    // Then search for specific token mentions
-    const searchData = await farcasterRequest<FarcasterCasts>(`/search?q=$${tokenName}&limit=${limit}`)
-    const tokenCasts = searchData.data.casts || []
+    // Try different search patterns
+    const searchPatterns = [
+      `$${token}`,
+      token,
+      `#${token}`,
+      `token:${token}`
+    ]
 
-    // Combine and deduplicate casts
-    const allCasts = [...artCasts, ...tokenCasts]
+    let allCasts: FarcasterCast[] = []
+    let nextCursor: string | undefined
+
+    // Fetch casts for each search pattern
+    for (const pattern of searchPatterns) {
+      try {
+        logger.info(`[Farcaster] Searching for pattern: ${pattern}`)
+        const response = await farcasterRequest<FarcasterCasts>(
+          `/search/casts?q=${encodeURIComponent(pattern)}&fid=${targetFid}&limit=100${nextCursor ? `&cursor=${nextCursor}` : ''}`
+        )
+        
+        logger.info(`[Farcaster] Response for pattern ${pattern}:`, {
+          hasData: !!response.data,
+          dataLength: response.data?.casts?.length,
+          hasNext: !!response.next
+        })
+
+        if (response.data?.casts) {
+          allCasts = [...allCasts, ...response.data.casts]
+        }
+        
+        // Update cursor for pagination
+        nextCursor = response.next?.cursor
+      } catch (error) {
+        logger.error(`Error fetching casts for pattern ${pattern}:`, error)
+      }
+    }
+
+    logger.info(`Found ${allCasts.length} total casts for token ${token}`)
+
+    // Remove duplicates based on hash
     const uniqueCasts = Array.from(new Map(allCasts.map(cast => [cast.hash, cast])).values())
+    logger.info(`After removing duplicates: ${uniqueCasts.length} casts`)
 
-    // Filter for art/culture related content and token mentions
-    const culturalCasts = uniqueCasts.filter(cast => {
+    const filteredCasts = uniqueCasts.filter((cast) => {
       const text = cast.text.toLowerCase()
-      const hasTokenMention = text.includes(`$${tokenName.toLowerCase()}`)
-      const hasCulturalTerms = 
-        text.includes('art') ||
-        text.includes('artist') ||
-        text.includes('creative') ||
-        text.includes('culture') ||
-        text.includes('cultural') ||
-        text.includes('music') ||
-        text.includes('song') ||
-        text.includes('album') ||
-        text.includes('media') ||
-        text.includes('film') ||
-        text.includes('video')
+      const tokenLower = token.toLowerCase()
+      
+      // Check for token mentions (more flexible matching)
+      const hasToken = text.includes(tokenLower) || 
+                      text.includes(`$${tokenLower}`) ||
+                      text.includes(`#${tokenLower}`) ||
+                      text.includes(`token:${tokenLower}`) ||
+                      // Add support for any $TOKEN format
+                      /\$[A-Za-z0-9]+/.test(text)
+      
+      // If we have a token mention, check for cultural context
+      if (hasToken) {
+        // Check for cultural keywords in the same cast
+        const hasCulturalContext = culturalKeywords.some(keyword => 
+          text.includes(keyword.toLowerCase())
+        )
 
-      return hasTokenMention || hasCulturalTerms
+        // If no direct cultural keywords, check for cultural score
+        if (!hasCulturalContext) {
+          const culturalScore = calculateCulturalScore(cast)
+          if (culturalScore > 0.3) {
+            logger.info(`Cast has cultural score: ${cast.text.substring(0, 50)}...`, {
+              text,
+              culturalScore,
+              reactions: cast.reactions
+            })
+            return true
+          }
+        } else {
+          logger.info(`Cast has cultural context: ${cast.text.substring(0, 50)}...`, {
+            text,
+            hasCulturalContext,
+            reactions: cast.reactions
+          })
+          return true
+        }
+      }
+
+      return false
     })
 
-    // Sort by engagement and cultural relevance
-    return culturalCasts
-      .sort((a, b) => {
-        const scoreA = calculateCulturalScore(a) * 0.7 + (a.reactions.likes + (a.reactions.recasts * 2)) * 0.3
-        const scoreB = calculateCulturalScore(b) * 0.7 + (b.reactions.likes + (b.reactions.recasts * 2)) * 0.3
-        return scoreB - scoreA
-      })
-      .slice(0, limit)
+    logger.info(`Filtered down to ${filteredCasts.length} cultural casts`)
 
+    // Cache the results
+    tokenMentionsCache[cacheKey] = {
+      casts: filteredCasts,
+      timestamp: Date.now()
+    }
+
+    return filteredCasts
   } catch (error) {
-    logger.error('Failed to get token mentions:', error)
-    throw error
+    logger.error('Error fetching token mentions:', error)
+    throw new FarcasterError('Failed to get token mentions')
   }
 }
 
@@ -178,7 +275,10 @@ export function calculateCulturalScore(cast: FarcasterCast): number {
   // Check for cultural indicators
   const culturalTerms = [
     'art', 'artist', 'creative', 'culture', 'cultural',
-    'music', 'song', 'album', 'media', 'film', 'video'
+    'music', 'song', 'album', 'media', 'film', 'video',
+    'animation', 'interactive', 'experience', 'immersive',
+    'virtual reality', 'augmented reality', 'mixed reality',
+    '3d', 'motion', 'graphics', 'visualization', 'simulation'
   ]
 
   // Add score for each cultural term found
@@ -186,13 +286,12 @@ export function calculateCulturalScore(cast: FarcasterCast): number {
     if (text.includes(term)) score += 0.1
   })
 
-  // Add score for token mentions
-  if (text.includes('$')) score += 0.2
-
   // Add score for engagement
-  score += Math.min(0.3, (cast.reactions.likes + cast.reactions.recasts * 2) / 1000)
+  const engagementScore = (cast.reactions.likes + cast.reactions.recasts * 2) / 1000
+  score += Math.min(0.3, engagementScore)
 
-  return Math.min(1, score)
+  // Ensure score is between 0 and 1
+  return Math.min(1, Math.max(0, score))
 }
 
 // Helper function to extract token mentions from cast text

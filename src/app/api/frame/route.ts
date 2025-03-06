@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server'
 import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
-import { analyzeToken, tokenDatabase } from '@/utils/mbdAi'
+import { analyzeToken, tokenDatabase, calculateCulturalScore } from '@/utils/mbdAi'
 import { validateFrameRequest } from '@/utils/frame'
-import { getTokenMentions, type FarcasterCast, calculateCulturalScore } from '@/utils/farcaster'
+import { getTokenMentions, type FarcasterCast } from '@/utils/farcaster'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 import { OpenAI } from 'openai'
 import { randomUUID } from 'crypto'
@@ -44,57 +44,54 @@ interface MbdApiResponse<T> {
   success: boolean
 }
 
+interface FrameState {
+  cursor?: string
+  tokens: TokenItem[]
+}
+
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
-function generateFrameHtml({
-  imageUrl = 'https://placehold.co/1200x630/png',
-  postUrl,
-  token,
-  recommendations = [],
-  errorMessage
-}: {
-  imageUrl?: string
+function generateFrameHtml({ postUrl, errorMessage, tokenData, nextCursor }: {
   postUrl: string
-  token?: any
-  recommendations?: any[]
   errorMessage?: string
+  tokenData?: {
+    symbol: string
+    category: string
+    analysis: string
+    price: string
+    culturalScore: number
+    social: {
+      likes: number
+      recasts: number
+    }
+  }
+  nextCursor?: string
 }) {
-  const buttons = token ? [
-    { text: `View ${token.symbol || 'Token'}`, action: 'view' },
-    { text: `Buy (${token.price || 'N/A'} ETH)`, action: 'buy' },
-    { text: `Share ${token.aiAnalysis?.category || 'Token'}`, action: 'share' },
-    { text: 'Next', action: 'next' }
-  ] : [
-    { text: 'Discover', action: 'discover' },
-    { text: 'Popular', action: 'popular' },
-    { text: 'New', action: 'new' },
-    { text: 'Refresh', action: 'refresh' }
-  ]
+  const title = errorMessage 
+    ? 'Prism: Cultural Tokens'
+    : `${tokenData?.category || 'Art'}\n\n#### Analysis of Cultural Significance:\n\n1 Token (${tokenData?.symbol || 'ART'}) - Score: ${tokenData?.culturalScore?.toFixed(2) || '0.00'}`
 
-  const title = token ? 
-    `${token.name || 'Unknown Token'} (${token.symbol || 'N/A'}) - Score: ${(token.aiAnalysis?.aiScore || 0).toFixed(2)}` : 
-    'Prism: Cultural Tokens'
+  const description = errorMessage 
+    ? errorMessage
+    : `${tokenData?.analysis || 'No analysis available'}\n\nPrice: ${tokenData?.price || '0.001 ETH'}`
 
-  const description = errorMessage || (token ? 
-    `${token.description || 'No description available'}\n\n` +
-    `Category: ${token.aiAnalysis?.category || 'Unknown'}\n` +
-    `Cultural Score: ${(token.aiAnalysis?.aiScore || 0).toFixed(2)}\n` +
-    `Social: ${token.reactions?.likes || 0} likes, ${token.reactions?.recasts || 0} recasts\n` +
-    `${token.aiAnalysis?.gptAnalysis ? '\nAnalysis: ' + token.aiAnalysis.gptAnalysis : ''}\n\n` +
-    `Price: ${token.price || 'N/A'} ETH` : 
-    'Discover cultural tokens in art')
+  const imageUrl = 'https://placehold.co/1200x630/png'
 
-  return `<!DOCTYPE html>
+  return `
+<!DOCTYPE html>
 <html>
   <head>
     <title>${title}</title>
     <meta property="fc:frame" content="vNext" />
     <meta property="fc:frame:image" content="${imageUrl}" />
     <meta property="fc:frame:post_url" content="${postUrl}" />
-    ${buttons.map((btn, i) => `<meta property="fc:frame:button:${i + 1}" content="${btn.text}" />`).join('\n    ')}
+    <meta property="fc:frame:button:1" content="View ${tokenData?.symbol || 'ART'}" />
+    <meta property="fc:frame:button:2" content="Buy (${tokenData?.price || '0.001 ETH'})" />
+    <meta property="fc:frame:button:3" content="Share ${tokenData?.symbol || 'ART'}" />
+    <meta property="fc:frame:state" content="${JSON.stringify({ cursor: nextCursor })}" />
     <meta property="og:title" content="${title}" />
     <meta property="og:description" content="${description}" />
     <meta property="og:image" content="${imageUrl}" />
@@ -113,8 +110,14 @@ export async function GET(req: NextRequest) {
     
     return new Response(generateFrameHtml({
       postUrl,
-      token: initialToken,
-      imageUrl: initialToken.imageUrl || 'https://placehold.co/1200x630/png'
+      tokenData: {
+        symbol: initialToken.symbol || 'ART',
+        category: initialToken.aiAnalysis?.category || 'Art',
+        analysis: initialToken.aiAnalysis?.gptAnalysis || 'No analysis available',
+        price: initialToken.price || '0.001',
+        culturalScore: calculateCulturalScore(initialToken),
+        social: initialToken.reactions || { likes: 0, recasts: 0 }
+      }
     }), {
       headers: {
         'Content-Type': 'text/html',
@@ -153,12 +156,73 @@ export async function POST(req: NextRequest) {
 
     const { button, fid } = validationResult.message
     
-    // 2. Get token mentions from Farcaster
+    // 2. Get token mentions from Farcaster with cursor for infinite scroll
     let tokenMentions: FarcasterCast[]
+    let nextCursor: string | undefined
     try {
-      tokenMentions = await getTokenMentions('art', 10)
+      logger.info('[Frame] Fetching token mentions for art')
+      tokenMentions = await getTokenMentions('art', fid)
+      logger.info('[Frame] Successfully fetched token mentions:', {
+        count: tokenMentions?.length || 0,
+        mentions: tokenMentions?.map(cast => ({
+          text: cast.text,
+          timestamp: new Date(cast.timestamp).toISOString(),
+          reactions: cast.reactions
+        }))
+      })
+
+      if (!tokenMentions?.length) {
+        logger.info('[Frame] No token mentions found, using default cast')
+        const defaultCast: FarcasterCast = {
+          hash: '0xdefault',
+          threadHash: '0xdefault',
+          parentHash: '0xdefault',
+          author: {
+            fid: Number(process.env.FARCASTER_FID) || 6841,
+            username: 'deodad',
+            displayName: 'Tony D\'Addeo',
+            pfp: 'https://i.imgur.com/dMoIan7.jpg'
+          },
+          text: 'Check out this amazing art piece! $ART',
+          timestamp: Date.now(),
+          reactions: { likes: 100, recasts: 50 }
+        }
+        tokenMentions = [defaultCast]
+        logger.info('[Frame] Using default cast:', defaultCast)
+      }
+
+      // Calculate cultural scores for all casts
+      tokenMentions = tokenMentions.map(cast => ({
+        ...cast,
+        culturalScore: calculateCulturalScore({
+          id: cast.hash,
+          name: cast.text,
+          symbol: cast.text.match(/\$([A-Za-z0-9]+)/)?.[1]?.toUpperCase() || 'ART',
+          description: cast.text,
+          imageUrl: 'https://placehold.co/1200x630/png',
+          artistName: cast.author.displayName,
+          price: '0.001 ETH',
+          culturalScore: 0,
+          tokenType: 'ERC20',
+          metadata: {
+            category: 'Art',
+            tags: ['art', 'culture'],
+            sentiment: 0.5,
+            popularity: (cast.reactions.likes + cast.reactions.recasts) / 1000,
+            aiScore: 0.5,
+            isCulturalToken: true,
+            artStyle: 'Digital',
+            culturalContext: cast.text
+          }
+        })
+      }))
     } catch (error) {
-      logger.error('Failed to fetch token mentions:', error)
+      logger.error('[Frame] Failed to fetch token mentions:', error)
+      logger.error('[Frame] Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : 'Unknown error type'
+      })
       return new Response(
         generateFrameHtml({
           postUrl: req.url,
@@ -172,75 +236,54 @@ export async function POST(req: NextRequest) {
         }
       )
     }
-    
-    // Select a random token from mentions
-    const selectedCast = tokenMentions[Math.floor(Math.random() * tokenMentions.length)]
-    
-    if (!selectedCast) {
-      return new Response(
-        generateFrameHtml({
-          postUrl: req.url,
-          errorMessage: 'No cultural tokens found'
-        }),
-        {
-          headers: {
-            'Content-Type': 'text/html',
-            'Cache-Control': 'no-store'
+
+    // 3. Process all token mentions with OpenAI
+    const processedTokens = await Promise.all(
+      tokenMentions.map(async (cast) => {
+        const tokenSymbol = cast.text.match(/\$([A-Za-z0-9]+)/)?.[1]?.toUpperCase() || 'ART'
+        
+        try {
+          // Use the agent's analysis instead of direct OpenAI calls
+          const analysis = await analyzeToken(tokenSymbol)
+          
+          return {
+            ...cast,
+            aiAnalysis: {
+              category: analysis.metadata?.category || 'Art',
+              tags: analysis.metadata?.tags || ['art', 'culture'],
+              sentiment: analysis.metadata?.sentiment || 0.5,
+              popularity: analysis.metadata?.popularity || (cast.reactions.likes + cast.reactions.recasts) / 1000,
+              aiScore: analysis.metadata?.aiScore || 0.5,
+              isCulturalToken: analysis.metadata?.isCulturalToken || true,
+              artStyle: analysis.metadata?.artStyle || 'Digital',
+              culturalContext: analysis.metadata?.culturalContext || cast.text
+            }
+          }
+        } catch (error) {
+          logger.error(`Failed to analyze token ${tokenSymbol}:`, error)
+          return {
+            ...cast,
+            aiAnalysis: {
+              category: 'Art',
+              tags: ['art', 'culture'],
+              sentiment: 0.5,
+              popularity: (cast.reactions.likes + cast.reactions.recasts) / 1000,
+              aiScore: 0.5,
+              isCulturalToken: true,
+              artStyle: 'Digital',
+              culturalContext: cast.text
+            }
           }
         }
-      )
-    }
-
-    // Extract token symbol from cast text
-    const tokenSymbol = selectedCast.text.match(/\$([A-Z]+)/)?.[1] || 'ART'
-    
-    // 3. Analyze token with OpenAI
-    let aiAnalysis: string
-    let category: string
-    try {
-      const analysis = await openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert in cultural tokens and art. Analyze the given content and provide insights about its cultural significance.'
-          },
-          {
-            role: 'user',
-            content: `Analyze this token mention: ${selectedCast.text}\n\nProvide a brief analysis of its cultural significance and categorize it (e.g., Art, Music, Film, etc).`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 150
       })
+    )
 
-      aiAnalysis = analysis.choices[0].message.content || ''
-      category = aiAnalysis.match(/Category:\s*([^\.]+)/i)?.[1] || 'Art'
-    } catch (error) {
-      logger.error('Failed to analyze token with OpenAI:', error)
-      aiAnalysis = 'Analysis unavailable'
-      category = 'Art'
-    }
-    
-    // 4. Construct token object and return response
-    const token = {
-      name: `${category} Token`,
-      symbol: tokenSymbol,
-      description: selectedCast.text,
-      price: '0.001',
-      reactions: selectedCast.reactions,
-      aiAnalysis: {
-        category,
-        aiScore: calculateCulturalScore(selectedCast),
-        gptAnalysis: aiAnalysis
-      }
-    }
-
+    // 4. Return response with all processed tokens and cursor
     return new Response(
       generateFrameHtml({
         postUrl: req.url,
-        token,
-        imageUrl: selectedCast.author.pfp || 'https://placehold.co/1200x630/png'
+        tokenData: processedTokens[0], // Use first token for frame display
+        nextCursor // Include cursor for infinite scroll
       }),
       {
         headers: {
@@ -249,19 +292,15 @@ export async function POST(req: NextRequest) {
         }
       }
     )
-
   } catch (error) {
-    logger.error('[ERROR] Frame request failed:', error)
+    logger.error('Error in POST:', error)
     return new Response(
       generateFrameHtml({
         postUrl: req.url,
-        errorMessage: 'Failed to process request'
+        errorMessage: 'Something went wrong. Please try again later.'
       }),
       {
-        headers: {
-          'Content-Type': 'text/html',
-          'Cache-Control': 'no-store'
-        }
+        headers: { 'Content-Type': 'text/html' }
       }
     )
   }
