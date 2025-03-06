@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { logger } from '@/utils/logger'
 import { sendMessage, getFriendActivities, getReferrals } from '@/utils/agentkit'
-import { analyzeToken, getPersonalizedFeed, getTrendingFeed, type Cast, tokenDatabase } from '@/utils/mbdAi'
+import { analyzeToken, getPersonalizedFeed, type Cast, tokenDatabase } from '@/utils/mbdAi'
 import { MBD_AI_CONFIG } from '@/config/mbdAi'
 import { OpenAI } from 'openai'
 import { randomUUID } from 'crypto'
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
             context: { view: 'feed' }
           })
         : Promise.resolve(null),
-      getTrendingFeed()
+      getPersonalizedFeed(fid.toString())
     ])
 
     let combinedTokens = []

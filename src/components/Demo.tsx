@@ -67,28 +67,42 @@ export default function Demo() {
       }
 
       // Connect using wagmi with the frame connector
+      const connector = config.connectors[0]
+      if (!connector) {
+        throw new Error('No wallet connector available')
+      }
+
       await connectWallet({
-        connector: config.connectors[0]
+        connector,
+        chainId: 8453 // Base mainnet
       })
       
       logger.info('Wallet connected successfully')
     } catch (error) {
       logger.error('Error connecting wallet:', error)
-      setError(error instanceof Error ? error.message : 'Failed to connect wallet')
+      setError(error instanceof Error ? error.message : 'Failed to connect wallet. Please try again.')
     }
   }, [isSDKLoaded, connectWallet, config.connectors])
 
   // Add error boundary for RPC errors
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
-      if (event.error?.name === 'RpcResponse.InternalErrorError') {
-        logger.error('RPC Error:', event.error)
-        setError('Connection error. Please try again.')
+      // Handle both RPC and general connection errors
+      if (event.error?.name === 'RpcResponse.InternalErrorError' || 
+          event.error?.message?.includes('connection') ||
+          event.error?.message?.includes('network')) {
+        logger.error('Connection Error:', event.error)
+        setError('Connection error. Please check your wallet and network connection.')
       }
     }
 
     window.addEventListener('error', handleError)
-    return () => window.removeEventListener('error', handleError)
+    window.addEventListener('unhandledrejection', (event) => handleError(event as unknown as ErrorEvent))
+    
+    return () => {
+      window.removeEventListener('error', handleError)
+      window.removeEventListener('unhandledrejection', (event) => handleError(event as unknown as ErrorEvent))
+    }
   }, [])
 
   // Share action
