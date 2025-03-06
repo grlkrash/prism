@@ -48,9 +48,9 @@ export default function Demo() {
         const frameContext = await sdk.context
         setContext(frameContext)
         setIsSDKLoaded(true)
-        logger.info('Frame initialized')
+        logger.info('Frame initialized with context:', frameContext)
       } catch (error) {
-        logger.error('Frame initialization error:', error)
+        logger.error('Error initializing frame:', error)
         setError(error instanceof Error ? error.message : 'Failed to initialize frame')
       }
     }
@@ -59,6 +59,24 @@ export default function Demo() {
       initializeFrame()
     }
   }, [isSDKLoaded])
+
+  const handleConnect = useCallback(async () => {
+    try {
+      if (!isSDKLoaded) {
+        throw new Error('Frame SDK not initialized')
+      }
+
+      // Connect using wagmi with the frame connector
+      await connectWallet({
+        connector: config.connectors[0]
+      })
+      
+      logger.info('Wallet connected successfully')
+    } catch (error) {
+      logger.error('Error connecting wallet:', error)
+      setError(error instanceof Error ? error.message : 'Failed to connect wallet')
+    }
+  }, [isSDKLoaded, connectWallet, config.connectors])
 
   // Add error boundary for RPC errors
   useEffect(() => {
@@ -112,73 +130,64 @@ export default function Demo() {
 
   if (!isSDKLoaded) {
     return (
-      <div className="w-[300px] mx-auto py-4 px-2">
-        <h1 className="text-2xl font-bold text-center mb-4">Loading Frame...</h1>
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-muted-foreground">Loading...</p>
       </div>
     )
   }
 
   return (
-    <div className="w-[300px] mx-auto py-4 px-2">
-      <h1 className="text-2xl font-bold text-center mb-4">Prism: Cultural Tokens</h1>
-      
-      <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
-        <div className="p-4">
-          <h2 className="text-lg font-semibold mb-2">Cultural Token Discovery</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            Explore and collect cultural tokens from the community
-          </p>
-          
-          <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="feed">Feed</TabsTrigger>
-              <TabsTrigger value="friends">Friends</TabsTrigger>
-              <TabsTrigger value="referrals">Referrals</TabsTrigger>
-            </TabsList>
+    <main className="min-h-screen flex flex-col items-center justify-center p-4">
+      <div className="w-[300px] mx-auto py-4 px-2">
+        <h1 className="text-2xl font-bold text-center mb-4">Cultural Token Discovery</h1>
+        <p className="text-center text-muted-foreground mb-6">
+          Explore and collect cultural tokens from the community
+        </p>
 
-            <TabsContent value="feed" className="mt-4">
-              {error ? (
-                <div className="text-red-500 text-sm">{error}</div>
-              ) : (
-                <Feed 
-                  fid={context?.user?.fid}
-                  onShare={handleShare}
-                  onBuy={handleBuy}
-                />
-              )}
-            </TabsContent>
+        {error && (
+          <div className="bg-destructive/10 text-destructive text-sm p-4 rounded-lg mb-4">
+            {error}
+          </div>
+        )}
 
-            <TabsContent value="friends" className="mt-4">
-              {error ? (
-                <div className="text-red-500 text-sm">{error}</div>
-              ) : (
-                <FriendActivity fid={context?.user?.fid} />
-              )}
-            </TabsContent>
+        <Tabs defaultValue={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="feed">Feed</TabsTrigger>
+            <TabsTrigger value="friends">Friends</TabsTrigger>
+            <TabsTrigger value="referrals">Referrals</TabsTrigger>
+          </TabsList>
 
-            <TabsContent value="referrals" className="mt-4">
-              {error ? (
-                <div className="text-red-500 text-sm">{error}</div>
-              ) : (
-                <Referrals fid={context?.user?.fid} />
-              )}
-            </TabsContent>
-          </Tabs>
+          <TabsContent value="feed" className="mt-4">
+            {!isConnected ? (
+              <Button 
+                onClick={handleConnect} 
+                className="w-full"
+                size="lg"
+              >
+                Connect Wallet
+              </Button>
+            ) : (
+              <Feed fid={context?.user?.fid} />
+            )}
+          </TabsContent>
 
-          {isConnected ? (
-            <Button onClick={() => disconnect()} className="w-full mt-4">
-              Disconnect Wallet
-            </Button>
-          ) : (
-            <Button 
-              onClick={() => connectWallet({ connector: config.connectors[0] })}
-              className="w-full mt-4"
-            >
-              Connect Wallet
-            </Button>
-          )}
-        </div>
+          <TabsContent value="friends">
+            {isConnected ? (
+              <FriendActivity fid={context?.user?.fid} />
+            ) : (
+              <Button onClick={handleConnect} className="w-full">Connect Wallet</Button>
+            )}
+          </TabsContent>
+
+          <TabsContent value="referrals">
+            {isConnected ? (
+              <Referrals fid={context?.user?.fid} />
+            ) : (
+              <Button onClick={handleConnect} className="w-full">Connect Wallet</Button>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
-    </div>
+    </main>
   )
 } 

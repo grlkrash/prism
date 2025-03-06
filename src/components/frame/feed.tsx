@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { getTrendingFeed } from '@/utils/mbdAi'
-import { TokenGallery } from '@/components/TokenGallery'
+import { useState, useEffect } from 'react'
 import { logger } from '@/utils/logger'
 import { sendMessage } from '@/utils/agentkit'
+import { getPersonalizedFeed } from '@/utils/feed'
 import type { TokenItem } from '@/types/token'
 import type { Cast } from '@/utils/mbdAi'
+import { TokenGallery } from '@/components/TokenGallery'
 
 interface FeedProps {
   fid?: number
@@ -27,26 +27,12 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
         setIsLoading(true)
         setError(null)
 
-        // Get agent recommendations if fid exists
-        if (fid) {
-          try {
-            const agentResponse = await sendMessage({
-              message: 'Recommend cultural tokens for discovery',
-              userId: fid.toString(),
-              context: { view: 'feed' }
-            })
-
-            if (agentResponse?.recommendations?.length) {
-              logger.info('Agent recommendations received:', agentResponse.recommendations.length)
-            }
-          } catch (agentError) {
-            logger.warn('Agent recommendations failed:', agentError)
-            // Continue with trending feed even if agent fails
-          }
+        if (!fid) {
+          throw new Error('User FID required for personalized feed')
         }
 
-        // Get trending feed
-        const feed = await getTrendingFeed()
+        // Get personalized feed with AI agent recommendations
+        const feed = await getPersonalizedFeed(fid.toString())
         
         if (!feed?.casts?.length) {
           throw new Error('No tokens found in feed')
@@ -58,7 +44,7 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
           symbol: cast.aiAnalysis?.category || 'ART',
           description: cast.text,
           imageUrl: cast.author.pfp || 'https://placehold.co/300x300.png',
-          price: '0.1',
+          price: 0.1, // Number type as required by TokenItem
           culturalScore: cast.aiAnalysis?.aiScore || 0.8
         }))
 
@@ -66,8 +52,8 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
         setCursor(feed.next?.cursor || null)
         setHasMore(!!feed.next?.cursor)
       } catch (error) {
-        logger.error('Error loading initial tokens:', error)
-        setError(error instanceof Error ? error.message : 'Failed to load tokens')
+        logger.error('Error loading personalized tokens:', error)
+        setError(error instanceof Error ? error.message : 'Failed to load personalized tokens')
       } finally {
         setIsLoading(false)
       }
@@ -76,15 +62,16 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
     loadInitialTokens()
   }, [fid])
 
-  const loadMore = async () => {
-    if (!cursor || !hasMore || isLoading) return
+  const loadMoreTokens = async () => {
+    if (!fid || !cursor || !hasMore || isLoading) return
 
     try {
       setIsLoading(true)
-      const feed = await getTrendingFeed(cursor)
-      
-      if (!feed?.casts) {
-        throw new Error('Invalid feed response')
+      const feed = await getPersonalizedFeed(fid.toString(), cursor)
+
+      if (!feed?.casts?.length) {
+        setHasMore(false)
+        return
       }
 
       const newTokens = feed.casts.map((cast: Cast) => ({
@@ -93,7 +80,7 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
         symbol: cast.aiAnalysis?.category || 'ART',
         description: cast.text,
         imageUrl: cast.author.pfp || 'https://placehold.co/300x300.png',
-        price: '0.1',
+        price: 0.1, // Number type as required by TokenItem
         culturalScore: cast.aiAnalysis?.aiScore || 0.8
       }))
 
@@ -117,23 +104,17 @@ export function Feed({ fid, onShare, onBuy }: FeedProps) {
   }
 
   if (error) {
-    return (
-      <div className="text-red-500 text-sm p-4">
-        {error}
-      </div>
-    )
+    return <div className="text-red-500 p-4">{error}</div>
   }
 
   return (
-    <div className="space-y-4">
-      <TokenGallery
-        tokens={tokens}
-        isLoading={isLoading}
-        hasMore={hasMore}
-        onLoadMore={loadMore}
-        onShare={handleShare}
-        onBuy={handleBuy}
-      />
-    </div>
+    <TokenGallery
+      tokens={tokens}
+      isLoading={isLoading}
+      hasMore={hasMore}
+      onLoadMore={loadMoreTokens}
+      onShare={handleShare}
+      onBuy={handleBuy}
+    />
   )
 } 

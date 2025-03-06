@@ -1,3 +1,5 @@
+import { logger } from '@/utils/logger'
+
 export const MBD_AI_CONFIG = {
   // API Configuration
   API_URL: process.env.MBD_AI_API_URL || 'https://api.mbd.xyz/v2',
@@ -17,14 +19,13 @@ export const MBD_AI_CONFIG = {
     // Add API key to headers if available
     if (apiKey) {
       if (!apiKey.startsWith('mbd-')) {
-        console.error('[MBD AI] Invalid API key format')
-        throw new Error('Invalid MBD API key format')
+        logger.error('[MBD AI] Invalid API key format')
+        return headers // Continue without auth for development
       }
       headers['Authorization'] = `Bearer ${apiKey}`
       headers['X-API-Version'] = '2'
     } else {
-      console.error('[MBD AI] API key not found')
-      throw new Error('MBD API key not found')
+      logger.warn('[MBD AI] API key not found, continuing without authentication')
     }
     
     return headers
@@ -32,7 +33,7 @@ export const MBD_AI_CONFIG = {
 
   // Client-side API endpoints (through proxy)
   CLIENT_ENDPOINTS: {
-    TRENDING_FEED: '/api/mbd/discover-actions',
+    TRENDING_FEED: '/api/mbd/feed',
     FOR_YOU_FEED: '/api/mbd/feed',
     SEARCH: '/api/mbd/search',
     LABELS: '/api/mbd/labels'
@@ -41,7 +42,7 @@ export const MBD_AI_CONFIG = {
   // Server-side API endpoints
   SERVER_ENDPOINTS: {
     FEED_FOR_YOU: '/feed',
-    FEED_TRENDING: '/discover-actions',
+    FEED_TRENDING: '/feed',
     SEARCH_SEMANTIC: '/search',
     LABELS_FOR_ITEMS: '/labels',
     USERS_SIMILAR: '/users/similar'
